@@ -14,10 +14,10 @@ for p in (RAW, PROC, MODELS, MON, PLOTS):
 
 SASHELP_HEART = "/opt/sas/viya/home/SASFoundation/sashelp/heart.sas7bdat"
 
-
 def load_raw() -> pd.DataFrame:
-    """Read SASHELP.HEART straight from the SAS install."""
-    df = pd.read_sas(SASHELP_HEART, encoding="latin1")
-    for c in df.select_dtypes("object"):
-        df[c] = df[c].astype(str).str.strip().replace({"": None, "nan": None})
-    return df
+    """Read SASHELP.HEART exported by 00_export_raw.sas."""
+    f = RAW / "heart_raw.csv"
+    if not f.exists():
+        raise FileNotFoundError(
+            f"{f} not found. Run programs/00_export_raw.sas in SAS first.")
+    return pd.read_csv(f)

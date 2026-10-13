@@ -11,8 +11,10 @@ from config import PROC, MODELS, SEED
 from macros.metrics import evaluate
 from macros.log_experiment import log_experiment
 
-train = pd.read_csv(PROC / "train.csv")
-valid = pd.read_csv(PROC / "valid.csv")
+# train = pd.read_csv(PROC / "train.csv")
+# valid = pd.read_csv(PROC / "valid.csv")
+train = pd.read_csv(PROC / "train.csv", keep_default_na=False, na_values=[""])
+valid = pd.read_csv(PROC / "valid.csv", keep_default_na=False, na_values=[""])
 
 CAT = ["Sex", "Smoke_Band"]
 NUM_LOGIT = ["AgeAtStart", "Systolic", "Diastolic", "Cholesterol", "BMI",

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from config import PROC
 
-df = pd.read_csv(PROC / "heart_clean.csv")
+df = pd.read_csv(PROC / "heart_clean.csv", keep_default_na=False, na_values=[""])
 
 df["BMI"] = df["Weight"] * 703 / df["Height"] ** 2            # inches, pounds
 df["Pulse_Pressure"] = df["Systolic"] - df["Diastolic"]

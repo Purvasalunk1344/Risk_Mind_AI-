@@ -5,7 +5,7 @@ import pandas as pd
 from config import load_raw, RAW, PLOTS
 
 df = load_raw()
-df.to_csv(RAW / "heart_raw.csv", index=False)
+
 
 print(df.shape)
 print(df.dtypes)
