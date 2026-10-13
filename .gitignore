@@ -1,0 +1,6 @@
+data/processed/
+*.sas7bdat
+*.sas7bcat
+output/
+models/
+*.log
