@@ -1,7 +1,7 @@
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path("/workspaces/myfolder/heart_risk_project")
+ROOT = Path(__file__).resolve().parents[1]
 SEED = 2026
 
 RAW = ROOT / "data/raw"

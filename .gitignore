@@ -1,6 +1,23 @@
-data/processed/
+# Project runtime / local environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Frontend generated files
+frontend/node_modules/
+frontend/dist/
+
+# Generated project artifacts
+models/
+output/
+monitoring/
+data/
+
+# SAS artifacts
 *.sas7bdat
 *.sas7bcat
-output/
-models/
 *.log
+setup_git.sh
