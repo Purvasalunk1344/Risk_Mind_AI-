@@ -387,27 +387,6 @@ function App() {
             <h1>HeartRisk Studio</h1>
           </div>
         </div>
-
-        <div className="topbar-actions">
-          <div className={`status-pill ${backendOnline ? 'online' : 'offline'}`}>
-            <span className="dot" />
-            <span>{backendOnline ? 'Python ML Backend (Port 5000)' : 'Local Fallback'}</span>
-          </div>
-
-          <div className="model-selector-wrap">
-            <label htmlFor="model-select">ML Model:</label>
-            <select
-              id="model-select"
-              value={selectedModel}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="model-select"
-            >
-              <option value="logistic">Champion: Logistic Regression (AUC: 0.779)</option>
-              <option value="random_forest">Random Forest Classifier</option>
-              <option value="gradient_boosting">Gradient Boosting Classifier</option>
-            </select>
-          </div>
-        </div>
       </header>
 
       {/* PRESETS BAR */}
