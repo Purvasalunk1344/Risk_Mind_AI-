@@ -38,9 +38,37 @@ except ImportError:
 # Ensure programs/ and programs/macros are in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROGRAMS_DIR = PROJECT_ROOT / "programs"
-sys.path.insert(0, str(PROGRAMS_DIR))
+MACROS_DIR = PROGRAMS_DIR / "macros"
 
-from macros.score_patient import _normalize_sex, _smoke_band
+for p in [str(PROJECT_ROOT), str(PROGRAMS_DIR), str(MACROS_DIR)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+try:
+    from macros.score_patient import _normalize_sex, _smoke_band
+except ImportError:
+    try:
+        from score_patient import _normalize_sex, _smoke_band
+    except ImportError:
+        def _normalize_sex(value):
+            if pd.isna(value):
+                return "Unknown"
+            text = str(value).strip().lower()
+            mapping = {"m": "Male", "male": "Male", "man": "Male",
+                       "f": "Female", "female": "Female", "woman": "Female"}
+            return mapping.get(text, str(value).title())
+
+        def _smoke_band(smoking):
+            if smoking is None or pd.isna(smoking) or str(smoking).strip() == "":
+                return "Unknown"
+            smoking = float(smoking)
+            if smoking == 0:
+                return "None"
+            if smoking < 15:
+                return "Light"
+            if smoking < 25:
+                return "Moderate"
+            return "Heavy"
 
 app = Flask(__name__)
 CORS(app)
@@ -534,6 +562,7 @@ def delete_patient(patient_id):
         return jsonify({"success": False, "error": str(e)}), 400
 
 
+<<<<<<< HEAD
 @app.route("/api/ai-guidance", methods=["POST"])
 def ai_guidance():
     """Generate AI-powered personalized care plan using Google Gemini."""
@@ -674,6 +703,29 @@ IMPORTANT: Return ONLY valid JSON. No markdown code blocks, no explanations, jus
 
     except json.JSONDecodeError as e:
         return jsonify({"success": False, "error": f"Gemini returned invalid JSON: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/copilot", methods=["POST"])
+def clinical_copilot_endpoint():
+    """Embedded Clinical AI Copilot for physician queries."""
+    try:
+        from clinical_copilot import answer_clinical_query
+        payload = request.get_json(force=True) or {}
+        message = payload.get("message", "").strip()
+        if not message:
+            return jsonify({"success": False, "error": "Query message cannot be empty."}), 400
+
+        patient = payload.get("patient") or {}
+        history = payload.get("history") or []
+
+        reply = answer_clinical_query(message, patient, history)
+        return jsonify({
+            "success": True,
+            "reply": reply,
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

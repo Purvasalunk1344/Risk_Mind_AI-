@@ -26,3 +26,8 @@ data/
 *.sas7bcat
 *.log
 setup_git.sh
+
+# API keys - NEVER commit
+backend/.env
+.env
+.vscode/

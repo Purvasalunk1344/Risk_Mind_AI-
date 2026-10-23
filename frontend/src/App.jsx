@@ -112,6 +112,19 @@ function App() {
   const [loadingAI, setLoadingAI] = useState(false);
   const [aiError, setAiError] = useState(null);
 
+  // ── CLINICAL AI COPILOT STATE ──────────────────────────────────────────
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    {
+      role: 'assistant',
+      content: '👋 **Welcome, Doctor.**\n\nI\'m your Clinical AI Copilot — ask me anything about this patient\'s cardiovascular profile, pharmacotherapy, dietary interventions, or interpretation of flagged metrics.\n\n**Example questions:**\n- Why was pulse pressure flagged in yellow?\n- What dietary changes lower systolic pressure fastest?\n- What medications should I consider for this patient?',
+    },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef(null);
+  const chatInputRef = useRef(null);
+
   // Trigger floating toast message
   const showToast = useCallback((message, type = 'success') => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -400,6 +413,38 @@ function App() {
   };
 
   const insights = backendData?.insights;
+
+  // ── COPILOT SEND MESSAGE ───────────────────────────────────────────────
+  const handleChatSend = useCallback(async () => {
+    const msg = chatInput.trim();
+    if (!msg || chatLoading) return;
+    const userMsg = { role: 'user', content: msg };
+    const history = [...chatMessages, userMsg];
+    setChatMessages(history);
+    setChatInput('');
+    setChatLoading(true);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+
+    try {
+      const res = await fetch('/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: msg,
+          patient: { ...patient, risk: backendData?.risk ?? 0.2 },
+          history: chatMessages.slice(-6),
+        }),
+      });
+      const data = await res.json();
+      const reply = data.reply || data.error || 'Sorry, I could not get a response. Please try again.';
+      setChatMessages([...history, { role: 'assistant', content: reply }]);
+    } catch (err) {
+      setChatMessages([...history, { role: 'assistant', content: '⚠️ Connection error. Please ensure the backend is running on port 5000.' }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+    }
+  }, [chatInput, chatMessages, chatLoading, patient, backendData]);
 
   // Filter saved records for Tab 4
   const filteredSavedPatients = useMemo(() => {
@@ -1203,6 +1248,153 @@ function App() {
           </section>
         )}
       </main>
+
+      {/* ── CLINICAL AI COPILOT (FIXED RIGHT CORNER ICON) ───────────────── */}
+
+      {/* Floating Copilot Action Button - Fixed Position */}
+      <button
+        id="copilot-fab"
+        className={`copilot-fab ${chatOpen ? 'open' : ''}`}
+        onClick={() => {
+          const next = !chatOpen;
+          setChatOpen(next);
+          if (next) {
+            setTimeout(() => {
+              chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              chatInputRef.current?.focus();
+            }, 100);
+          }
+        }}
+        title={chatOpen ? 'Close AI Copilot' : 'Open Clinical AI Copilot'}
+        aria-label="Clinical AI Copilot"
+      >
+        <span className="copilot-fab-icon">{chatOpen ? '✕' : '🩺'}</span>
+        {!chatOpen && <span className="copilot-fab-pulse" />}
+      </button>
+
+      {/* Floating Chatbot Popup Drawer (Only visible when toggled) */}
+      {chatOpen && (
+        <div className="copilot-drawer" role="dialog" aria-label="Clinical AI Copilot Chat">
+        {/* Header */}
+        <div className="copilot-header">
+          <div className="copilot-header-info">
+            <span className="copilot-avatar">🩺</span>
+            <div>
+              <strong>Clinical AI Copilot</strong>
+              <span className="copilot-subtitle">Doctor Assistant · Heart Risk Studio</span>
+            </div>
+          </div>
+          <div className="copilot-header-actions">
+            <button
+              className="copilot-clear-btn"
+              onClick={() => setChatMessages([
+                { role: 'assistant', content: '💬 Conversation cleared. How can I assist you, Doctor?' }
+              ])}
+              title="Clear conversation"
+            >🗑️</button>
+            <button className="copilot-close-btn" onClick={() => setChatOpen(false)} aria-label="Close">✕</button>
+          </div>
+        </div>
+
+        {/* Patient Context Banner */}
+        <div className="copilot-context-bar">
+          <span className="ctx-badge">👤 {patient.name || 'Current Patient'}</span>
+          <span className="ctx-badge">{patient.Systolic}/{patient.Diastolic} mmHg</span>
+          <span className="ctx-badge">{patient.Cholesterol} mg/dL Chol</span>
+          <span className={`ctx-badge risk-ctx-${(backendData?.risk_band || 'low').toLowerCase()}`}>
+            {backendData ? `${Math.round((backendData.risk || 0.2) * 100)}% Risk` : 'Risk: Pending'}
+          </span>
+        </div>
+
+        {/* Messages */}
+        <div className="copilot-messages" id="copilot-messages-container">
+          {chatMessages.map((msg, i) => (
+            <div key={i} className={`copilot-msg ${msg.role}`}>
+              {msg.role === 'assistant' && <span className="msg-avatar">🩺</span>}
+              <div
+                className="msg-bubble"
+                dangerouslySetInnerHTML={{
+                  __html: msg.content
+                    // markdown → HTML (minimal inline renderer)
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+                    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+                    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+                    .replace(/^---$/gm, '<hr/>')
+                    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+                    .replace(/^- (.+)$/gm, '<li>$1</li>')
+                    .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+                    .replace(/`([^`]+)`/g, '<code>$1</code>')
+                    .replace(/\n\n/g, '</p><p>')
+                    .replace(/\n/g, '<br/>')
+                    .replace(/^(?!<)(.+)$/gm, '<p>$1</p>')
+                }}
+              />
+            </div>
+          ))}
+
+          {chatLoading && (
+            <div className="copilot-msg assistant">
+              <span className="msg-avatar">🩺</span>
+              <div className="msg-bubble typing-indicator">
+                <span /><span /><span />
+              </div>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Quick Prompt Pills */}
+        <div className="copilot-quick-prompts">
+          {[
+            'Explain the pulse pressure flag',
+            'Best medications for this patient?',
+            'Dietary changes to lower systolic?',
+            'Interpret the risk score',
+          ].map((q) => (
+            <button
+              key={q}
+              className="quick-prompt-pill"
+              onClick={() => {
+                setChatInput(q);
+                chatInputRef.current?.focus();
+              }}
+            >{q}</button>
+          ))}
+        </div>
+
+        {/* Input Area */}
+        <div className="copilot-input-area">
+          <textarea
+            ref={chatInputRef}
+            id="copilot-input"
+            className="copilot-input"
+            placeholder="Ask a clinical question about this patient..."
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleChatSend();
+              }
+            }}
+            rows={2}
+            disabled={chatLoading}
+          />
+          <button
+            id="copilot-send-btn"
+            className="copilot-send-btn"
+            onClick={handleChatSend}
+            disabled={chatLoading || !chatInput.trim()}
+            aria-label="Send message"
+          >
+            {chatLoading ? '⏳' : '➤'}
+          </button>
+        </div>
+      </div>
+      )}
 
       {/* FLOATING TOAST FEEDBACK */}
       {toast && (
