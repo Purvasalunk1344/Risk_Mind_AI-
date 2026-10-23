@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { calculateRisk, getRiskBand, samplePatient } from './data/scoreLogic';
+import { calculateRisk, getRiskBand, samplePatient, generateCounterfactualPlan } from './data/scoreLogic';
 
 const fieldConfig = [
   { label: 'Age (Years)', key: 'AgeAtStart', type: 'number', min: 20, max: 100, step: 1, hint: 'Patient age between 20-100' },
@@ -105,6 +105,7 @@ function App() {
   const [hasUncalculatedChanges, setHasUncalculatedChanges] = useState(false);
   const [savedPatients, setSavedPatients] = useState([]);
   const [historySearch, setHistorySearch] = useState('');
+  const [targetRiskGoal, setTargetRiskGoal] = useState(20);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
 
@@ -214,6 +215,11 @@ function App() {
   const activeRisk = backendData?.risk ?? localRisk;
   const activeBand = backendData ? { label: backendData.risk_band, tone: backendData.risk_band.toLowerCase() } : localBand;
   const activePct = Math.round(activeRisk * 100);
+
+  // Counterfactual reverse goal-seeking computation
+  const counterfactualPlan = useMemo(() => {
+    return generateCounterfactualPlan(patient, targetRiskGoal);
+  }, [patient, targetRiskGoal]);
 
   // Update field value and mark uncalculated changes
   const updateField = (key, value) => {
@@ -701,65 +707,201 @@ function App() {
           </section>
         )}
 
-        {/* TAB 3: PATIENT CARE PLAN & GUIDANCE */}
+        {/* TAB 3: PATIENT CARE PLAN & GUIDANCE (WITH INTERACTIVE COUNTERFACTUAL ENGINE) */}
         {activeTab === 'guidance' && (
           <section className="guidance-section">
             <div className="panel guidance-panel">
               <div className="panel-header">
                 <div>
-                  <h3>Personalized Patient Care Plan & Action Items</h3>
-                  <span>Empathetic Clinical Guidance</span>
+                  <h3>Interactive Counterfactual Care Plan & Goal-Seeking Engine</h3>
+                  <span>Reverse Risk Optimization & Prescriptive Medicine</span>
                 </div>
+                <button
+                  className="btn-secondary-action"
+                  onClick={() => window.print()}
+                  title="Print official clinical care plan"
+                >
+                  🖨️ Print Clinical Plan
+                </button>
               </div>
 
-              <div className="guidance-card-highlight">
-                <div className="guidance-tier-tag">
-                  Tier: <strong>{activeBand.label} Risk Priority</strong>
-                </div>
-                <p className="guidance-main-message">
-                  {insights?.summary ||
-                    'Patient should maintain communication with their primary healthcare provider for regular evaluations.'}
-                </p>
-              </div>
+              {/* COUNTERFACTUAL GOAL SEEKER HERO */}
+              <div className="counterfactual-hero">
+                <div className="counterfactual-top">
+                  <div className="counterfactual-header">
+                    <h4>
+                      <span>🎯</span>
+                      <span>Target Risk Goal-Seeker</span>
+                    </h4>
+                    <p>
+                      Set an achievable target risk for this patient. The engine reverse-calculates the exact
+                      minimum biometric reductions needed and prescribes tailored lifestyle, nutrition, and exercise regimens.
+                    </p>
+                  </div>
 
-              <div className="action-steps-grid">
-                <h4>Recommended Clinical Action Steps:</h4>
-                <div className="steps-list">
-                  {insights?.recommended_actions && insights.recommended_actions.length > 0 ? (
-                    insights.recommended_actions.map((act, i) => (
-                      <div className="step-card" key={i}>
-                        <span className="step-num">{i + 1}</span>
-                        <p>{act}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="step-card">
-                      <span className="step-num">1</span>
-                      <p>Continue routine wellness checkups and balanced nutrition.</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="patient-targets-box">
-                  <h4>Key Patient Target Milestones:</h4>
-                  <div className="milestones-row">
-                    <div className="milestone">
-                      <span className="milestone-label">Target Blood Pressure</span>
-                      <strong>&lt; 120/80 mmHg</strong>
-                    </div>
-                    <div className="milestone">
-                      <span className="milestone-label">Target Total Cholesterol</span>
-                      <strong>&lt; 200 mg/dL</strong>
-                    </div>
-                    <div className="milestone">
-                      <span className="milestone-label">Target Tobacco Use</span>
-                      <strong>0 cigs / day</strong>
-                    </div>
-                    <div className="milestone">
-                      <span className="milestone-label">Target Aerobic Activity</span>
-                      <strong>150 min / week</strong>
+                  <div className="goal-controls">
+                    <span className="goal-label">Select Target Heart Risk Goal:</span>
+                    <div className="goal-chips-row">
+                      <button
+                        className={`goal-chip ${targetRiskGoal === 20 ? 'active' : ''}`}
+                        onClick={() => { setTargetRiskGoal(20); showToast('Target set to <20% (Low Risk Threshold)'); }}
+                      >
+                        Target &lt;20% (Low Risk)
+                      </button>
+                      <button
+                        className={`goal-chip ${targetRiskGoal === 15 ? 'active' : ''}`}
+                        onClick={() => { setTargetRiskGoal(15); showToast('Target set to <15% (Optimal)'); }}
+                      >
+                        Target &lt;15% (Optimal)
+                      </button>
+                      <button
+                        className={`goal-chip ${targetRiskGoal === 10 ? 'active' : ''}`}
+                        onClick={() => { setTargetRiskGoal(10); showToast('Target set to <10% (Minimal Hazard)'); }}
+                      >
+                        Target &lt;10%
+                      </button>
                     </div>
                   </div>
+                </div>
+
+                {/* PROJECTION COMPARISON BANNER */}
+                <div className="projection-comparison">
+                  <div className="proj-stat current">
+                    <span>Current Baseline Hazard</span>
+                    <strong>{activePct}%</strong>
+                    <small style={{ color: '#ff9999' }}>{activeBand.label} Risk Tier</small>
+                  </div>
+
+                  <div className="proj-stat target">
+                    <span>Simulated Target Hazard</span>
+                    <strong>{counterfactualPlan ? counterfactualPlan.simulatedRiskPct : activePct}%</strong>
+                    <small style={{ color: '#73f2a7' }}>Achievable with Protocol</small>
+                  </div>
+
+                  <div className="proj-stat savings">
+                    <span>Potential Hazard Reduction</span>
+                    <strong>
+                      {counterfactualPlan && counterfactualPlan.riskReductionPct > 0
+                        ? `-${counterfactualPlan.riskReductionPct}%`
+                        : '0% (At Goal)'}
+                    </strong>
+                    <small style={{ color: '#90c2ff' }}>Absolute Risk Reduction</small>
+                  </div>
+                </div>
+
+                {/* BIOMETRIC DELTAS ROADMAP */}
+                {counterfactualPlan && counterfactualPlan.deltas.length > 0 && (
+                  <div className="deltas-section">
+                    <div className="deltas-title">
+                      <h4>Required Biomarker Reductions (Clinical Delta Roadmap):</h4>
+                    </div>
+                    <div className="deltas-grid">
+                      {counterfactualPlan.deltas.map((d, idx) => (
+                        <div key={idx} className="delta-card">
+                          <div className="delta-header">
+                            <span className="delta-metric">{d.metric}</span>
+                            <span className="delta-pill">{d.diff}</span>
+                          </div>
+                          <div className="delta-values">
+                            <span>Current: {d.current}</span>
+                            <span>➔</span>
+                            <strong>Target: {d.target}</strong>
+                          </div>
+                          <p className="delta-impact">{d.impact}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* DOCTOR'S PRESCRIPTIVE RECOMMENDATIONS GRID */}
+              <div className="prescriptions-grid">
+                {/* 1. DIETARY PRESCRIPTION */}
+                <div className="prescription-card diet">
+                  <div className="prescript-header">
+                    <div>
+                      <h4>🥗 Targeted Nutrition Prescription</h4>
+                      <span style={{ fontSize: '0.8rem', color: '#93c5fd' }}>
+                        {counterfactualPlan?.dietPlan?.title || 'Cardiometabolic Nutrition Plan'}
+                      </span>
+                    </div>
+                    <span className="prescript-tag">
+                      {counterfactualPlan?.dietPlan?.sodium || 'Sodium: < 1,500 mg/day'}
+                    </span>
+                  </div>
+
+                  <ul className="prescript-list">
+                    {counterfactualPlan?.dietPlan?.guidelines.map((g, idx) => (
+                      <li key={idx}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* 2. EXERCISE SCHEDULE PRESCRIPTION */}
+                <div className="prescription-card exercise">
+                  <div className="prescript-header">
+                    <div>
+                      <h4>🏃‍♂️ Prescriptive Exercise Protocol & Weekly Schedule</h4>
+                      <span style={{ fontSize: '0.8rem', color: '#93c5fd' }}>
+                        {counterfactualPlan?.exercisePlan?.duration || '150–180 min / week'}
+                      </span>
+                    </div>
+                    <span className="prescript-tag" style={{ background: 'rgba(59, 130, 246, 0.2)', borderColor: 'rgba(59, 130, 246, 0.5)', color: '#93c5fd' }}>
+                      5 Days / Week
+                    </span>
+                  </div>
+
+                  <div className="exercise-schedule-grid">
+                    {counterfactualPlan?.exercisePlan?.schedule.map((item, idx) => (
+                      <div key={idx} className="exercise-day-item">
+                        <span className="exercise-day-badge">{item.day}</span>
+                        <span className="exercise-day-desc">{item.activity}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ margin: '8px 0 0', fontSize: '0.78rem', color: '#8bb0d6' }}>
+                    💡 <strong>Clinical Mechanism:</strong> {counterfactualPlan?.exercisePlan?.impact}
+                  </p>
+                </div>
+
+                {/* 3. CLINICAL & MEDICAL ACTION PROTOCOL */}
+                <div className="prescription-card full-width">
+                  <div className="prescript-header">
+                    <div>
+                      <h4>💊 Clinical Interventions & Physician Actions</h4>
+                      <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
+                        Guideline-Directed Medical Therapy (GDMT)
+                      </span>
+                    </div>
+                    <span className="prescript-tag" style={{ background: 'rgba(139, 92, 246, 0.2)', borderColor: 'rgba(139, 92, 246, 0.5)', color: '#c4b5fd' }}>
+                      Physician Review
+                    </span>
+                  </div>
+
+                  <ul className="prescript-list">
+                    {counterfactualPlan?.clinicalActions.map((act, idx) => (
+                      <li key={idx}>{act}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* FOOTER ACTION BAR */}
+              <div className="care-plan-footer-actions">
+                <div>
+                  <strong style={{ color: '#ffffff' }}>Ready to hand this plan to the patient?</strong>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#9bb8dc' }}>
+                    You can print this customized prescription plan or save it into the patient's record history.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="btn-secondary-action" onClick={() => window.print()}>
+                    🖨️ Print Prescription
+                  </button>
+                  <button className="btn-save-record" onClick={handleSavePatient} disabled={savingRecord}>
+                    💾 Save Plan to History
+                  </button>
                 </div>
               </div>
             </div>
