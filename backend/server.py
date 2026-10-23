@@ -10,6 +10,31 @@ import pandas as pd
 import numpy as np
 import joblib
 
+# Load .env file for API keys
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=_env_path)
+    print("[OK] .env file loaded successfully.")
+except ImportError:
+    print("[WARN] python-dotenv not installed. Skipping .env loading.")
+
+# Gemini AI setup
+_GEMINI_AVAILABLE = False
+_GEMINI_MODELS = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"]
+
+try:
+    import google.generativeai as genai
+    _GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+    if _GEMINI_API_KEY and _GEMINI_API_KEY != "your_gemini_api_key_here":
+        genai.configure(api_key=_GEMINI_API_KEY)
+        _GEMINI_AVAILABLE = True
+        print("[OK] Gemini AI configured successfully with active models.")
+    else:
+        print("[WARN] GEMINI_API_KEY not set or placeholder found. AI guidance will use fallback mode.")
+except ImportError:
+    print("[WARN] google-generativeai not installed. AI guidance will use fallback mode.")
+
 # Ensure programs/ and programs/macros are in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROGRAMS_DIR = PROJECT_ROOT / "programs"
@@ -507,6 +532,150 @@ def delete_patient(patient_id):
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/ai-guidance", methods=["POST"])
+def ai_guidance():
+    """Generate AI-powered personalized care plan using Google Gemini."""
+    try:
+        data = request.get_json(force=True) or {}
+
+        age = int(float(data.get("AgeAtStart", 50) or 50))
+        sex = data.get("Sex", "Female")
+        systolic = int(float(data.get("Systolic", 120) or 120))
+        diastolic = int(float(data.get("Diastolic", 80) or 80))
+        cholesterol = int(float(data.get("Cholesterol", 200) or 200))
+        weight = int(float(data.get("Weight", 160) or 160))
+        height = int(float(data.get("Height", 66) or 66))
+        smoking = int(float(data.get("Smoking", 0) or 0))
+        risk_score = float(data.get("riskScore", 0.3))
+        risk_percentage = round(risk_score * 100, 1)
+        risk_band = data.get("riskBand", "Medium")
+
+        bmi = round((weight * 703.0 / (height ** 2)) if height > 0 else 25.0, 1)
+
+        if not _GEMINI_AVAILABLE:
+            return jsonify({
+                "success": False,
+                "error": "Gemini AI is not configured. Please add a valid GEMINI_API_KEY (starting with AIzaSy...) to the backend/.env file.",
+                "fallback": True
+            }), 503
+
+        prompt = f"""You are an expert cardiologist AI assistant generating a structured personalized care plan.
+
+Patient Clinical Data:
+- Age: {age} years
+- Sex: {sex}
+- Systolic Blood Pressure: {systolic} mmHg
+- Diastolic Blood Pressure: {diastolic} mmHg
+- Total Cholesterol: {cholesterol} mg/dL
+- Weight: {weight} lbs, Height: {height} inches, BMI: {bmi}
+- Smoking: {smoking} cigarettes/day
+- 10-Year Cardiovascular Mortality Risk Score: {risk_percentage}% ({risk_band} Risk)
+
+Generate a comprehensive, specific, and actionable care plan in valid JSON format with this exact structure:
+{{
+  "riskSummary": "2-3 sentence summary of this patient's cardiovascular profile and urgency level",
+  "primaryGoal": "One clear clinical goal sentence for risk reduction",
+  "dietPlan": {{
+    "title": "Name of the specific diet protocol recommended",
+    "sodiumTarget": "Specific sodium limit in mg/day with reason",
+    "mealTiming": "Specific meal timing advice",
+    "guidelines": [
+      "Specific food item 1 with exact quantity and clinical reason",
+      "Specific food item 2 with exact quantity and clinical reason",
+      "Specific food item 3 with exact quantity and clinical reason",
+      "Specific food item 4 with exact quantity and clinical reason",
+      "Specific food item 5 with foods to avoid with clinical reason"
+    ],
+    "sampleMeal": "A specific one-day sample meal plan (breakfast, lunch, dinner, snack)"
+  }},
+  "exercisePlan": {{
+    "title": "Name of the exercise protocol",
+    "weeklyMinutes": "Total minutes per week",
+    "intensity": "Target heart rate zone or RPE scale guidance",
+    "schedule": [
+      {{"day": "Monday", "activity": "Specific exercise with duration, intensity, and clinical benefit"}},
+      {{"day": "Tuesday", "activity": "Specific exercise with duration, intensity, and clinical benefit"}},
+      {{"day": "Wednesday", "activity": "Specific exercise with duration, intensity, and clinical benefit"}},
+      {{"day": "Thursday", "activity": "Specific exercise with duration, intensity, and clinical benefit"}},
+      {{"day": "Friday", "activity": "Specific exercise with duration, intensity, and clinical benefit"}},
+      {{"day": "Saturday", "activity": "Specific exercise with duration, intensity, and clinical benefit"}},
+      {{"day": "Sunday", "activity": "Rest and recovery activity"}}
+    ],
+    "progressionTip": "How to gradually increase intensity over 8-12 weeks"
+  }},
+  "lifestyleChanges": [
+    "Specific sleep recommendation with reason",
+    "Specific stress management technique with duration/frequency",
+    "Specific smoking or other habit change if relevant"
+  ],
+  "medicalGuidance": [
+    "Doctor-facing: specific medication class recommendation with clinical rationale",
+    "Specific lab tests or monitoring to order with frequency",
+    "Follow-up visit schedule recommendation"
+  ],
+  "targetBiomarkers": {{
+    "bpTarget": "Specific BP target in mmHg",
+    "cholesterolTarget": "Specific cholesterol target in mg/dL",
+    "bmiTarget": "Specific BMI target range",
+    "timelineWeeks": "Realistic weeks to achieve targets with adherence"
+  }}
+}}
+
+IMPORTANT: Return ONLY valid JSON. No markdown code blocks, no explanations, just the JSON object."""
+
+        response = None
+        used_model = None
+        last_error = None
+
+        for model_name in _GEMINI_MODELS:
+            try:
+                gen_model = genai.GenerativeModel(model_name)
+                response = gen_model.generate_content(prompt)
+                if response and response.text:
+                    used_model = model_name
+                    break
+            except Exception as model_err:
+                last_error = model_err
+                print(f"[WARN] Gemini model {model_name} failed: {model_err}. Trying fallback...")
+                continue
+
+        if not response or not used_model:
+            raise RuntimeError(f"All Gemini models exhausted. Last error: {last_error}")
+
+        raw_text = response.text.strip()
+
+        # Clean markdown code fences if model wrapped response in ```json ... ```
+        if "```" in raw_text:
+            # Extract content between first ``` and last ```
+            start_idx = raw_text.find("```")
+            end_idx = raw_text.rfind("```")
+            inner = raw_text[start_idx:end_idx].strip()
+            # remove language identifier if present like ```json
+            if inner.startswith("```json"):
+                inner = inner[7:].strip()
+            elif inner.startswith("```"):
+                inner = inner[3:].strip()
+            raw_text = inner
+
+        care_plan = json.loads(raw_text)
+
+        return jsonify({
+            "success": True,
+            "source": used_model,
+            "patientSummary": {
+                "age": age, "sex": sex, "systolic": systolic, "diastolic": diastolic,
+                "cholesterol": cholesterol, "bmi": bmi, "smoking": smoking,
+                "riskPercentage": risk_percentage, "riskBand": risk_band
+            },
+            "carePlan": care_plan
+        })
+
+    except json.JSONDecodeError as e:
+        return jsonify({"success": False, "error": f"Gemini returned invalid JSON: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":

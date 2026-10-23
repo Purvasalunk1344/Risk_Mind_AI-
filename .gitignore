@@ -1,3 +1,8 @@
+# Environment variables / secrets (never commit these!)
+.env
+.env.local
+*.env
+
 # Project runtime / local environment
 .venv/
 venv/
