@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { calculateRisk, getRiskBand, samplePatient, generateCounterfactualPlan } from './data/scoreLogic';
+import { calculateRisk, getRiskBand, samplePatient, generateCounterfactualPlan, calculateSurvivalTrajectory } from './data/scoreLogic';
+import SurvivalTrajectoryCurve from './components/SurvivalTrajectoryCurve';
 
 const fieldConfig = [
   { label: 'Age (Years)', key: 'AgeAtStart', type: 'number', min: 20, max: 100, step: 1, hint: 'Patient age between 20-100' },
@@ -236,6 +237,11 @@ function App() {
   const counterfactualPlan = useMemo(() => {
     return generateCounterfactualPlan(patient, targetRiskGoal);
   }, [patient, targetRiskGoal]);
+
+  // Dynamic Kaplan-Meier time-to-event survival trajectory computation
+  const survivalTrajectory = useMemo(() => {
+    return calculateSurvivalTrajectory(patient, backendData?.probability);
+  }, [patient, backendData]);
 
   // Update field value and mark uncalculated changes
   const updateField = (key, value) => {
@@ -782,6 +788,11 @@ function App() {
                   </ul>
                 </div>
               </div>
+
+              {/* LONGITUDINAL SURVIVAL TRAJECTORY CURVE */}
+              <div style={{ marginTop: '24px' }}>
+                <SurvivalTrajectoryCurve trajectoryData={survivalTrajectory} patient={patient} />
+              </div>
             </div>
           </section>
         )}
@@ -875,6 +886,9 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {/* DYNAMIC TIME-TO-EVENT TRAJECTORY (KAPLAN-MEIER SURVIVAL CURVES) */}
+              <SurvivalTrajectoryCurve trajectoryData={survivalTrajectory} patient={patient} />
 
               {/* COUNTERFACTUAL GOAL SEEKER HERO */}
               <div className="counterfactual-hero">

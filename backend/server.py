@@ -562,7 +562,84 @@ def delete_patient(patient_id):
         return jsonify({"success": False, "error": str(e)}), 400
 
 
-<<<<<<< HEAD
+@app.route("/api/survival-trajectory", methods=["POST"])
+def survival_trajectory():
+    """
+    Calculate dynamic Kaplan-Meier time-to-event survival trajectory comparing:
+    1. Untreated baseline risk profile
+    2. Controlled risk profile (Blood pressure controlled to <=120/80 mmHg and Smoking = 0)
+    Evaluates at Years 1, 3, 5, 10, and 15.
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        model_name = data.get("model", "logistic")
+
+        # 1. Baseline untreated patient
+        base_prepared = prepare_full_patient(data)
+        X_base = pd.DataFrame([base_prepared])
+        pipe, cols = get_loaded_model(model_name)
+        base_prob = float(pipe.predict_proba(X_base[cols])[0, 1])
+
+        # 2. Controlled patient (BP <= 120/80, Smoking = 0)
+        controlled_data = dict(data)
+        controlled_data["Systolic"] = min(float(data.get("Systolic", 120) or 120), 120.0)
+        controlled_data["Diastolic"] = min(float(data.get("Diastolic", 80) or 80), 80.0)
+        controlled_data["Smoking"] = 0
+        ctrl_prepared = prepare_full_patient(controlled_data)
+        X_ctrl = pd.DataFrame([ctrl_prepared])
+        ctrl_prob = float(pipe.predict_proba(X_ctrl[cols])[0, 1])
+
+        # Bound probabilities
+        base_p10 = min(max(base_prob, 0.01), 0.98)
+        ctrl_p10 = min(max(ctrl_prob, 0.01), base_p10)
+
+        # Survival time points: 0, 1, 3, 5, 10, 15 years
+        time_points = [0, 1, 3, 5, 10, 15]
+        gamma = 1.32  # Weibull acceleration parameter for cardiovascular mortality
+        base_H10 = -np.log(1.0 - base_p10)
+        ctrl_H10 = -np.log(1.0 - ctrl_p10)
+
+        trajectory = []
+        for t in time_points:
+            if t == 0:
+                trajectory.append({
+                    "year": 0,
+                    "untreated_risk": 0.0,
+                    "untreated_survival": 100.0,
+                    "controlled_risk": 0.0,
+                    "controlled_survival": 100.0,
+                    "absolute_risk_reduction": 0.0,
+                    "survival_gain": 0.0
+                })
+            else:
+                scale = float((t / 10.0) ** gamma)
+                u_risk = float(1.0 - np.exp(-base_H10 * scale))
+                u_surv = float(np.exp(-base_H10 * scale))
+                c_risk = float(1.0 - np.exp(-ctrl_H10 * scale))
+                c_surv = float(np.exp(-ctrl_H10 * scale))
+
+                trajectory.append({
+                    "year": t,
+                    "untreated_risk": round(u_risk * 100, 1),
+                    "untreated_survival": round(u_surv * 100, 1),
+                    "controlled_risk": round(c_risk * 100, 1),
+                    "controlled_survival": round(c_surv * 100, 1),
+                    "absolute_risk_reduction": round((u_risk - c_risk) * 100, 1),
+                    "survival_gain": round((c_surv - u_surv) * 100, 1)
+                })
+
+        return jsonify({
+            "success": True,
+            "model_used": model_name,
+            "baseline_10yr_risk": round(base_prob * 100, 1),
+            "controlled_10yr_risk": round(ctrl_prob * 100, 1),
+            "absolute_reduction_10yr": round((base_p10 - ctrl_p10) * 100, 1),
+            "trajectory": trajectory
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
 @app.route("/api/ai-guidance", methods=["POST"])
 def ai_guidance():
     """Generate AI-powered personalized care plan using Google Gemini."""

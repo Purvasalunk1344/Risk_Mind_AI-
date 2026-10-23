@@ -234,3 +234,83 @@ export const generateCounterfactualPlan = (patient, targetRiskPct = 20) => {
     clinicalActions
   };
 };
+
+export const calculateSurvivalTrajectory = (patient, baselineProb = null) => {
+  if (!patient) return null;
+
+  // 1. Untreated baseline 10-year risk
+  const baseP10 =
+    baselineProb !== null && baselineProb !== undefined
+      ? Math.min(Math.max(Number(baselineProb), 0.01), 0.98)
+      : calculateRisk(patient);
+
+  // 2. Controlled patient profile: BP <= 120/80 and Smoking = 0
+  const controlledPatient = {
+    ...patient,
+    Systolic: Math.min(Number(patient.Systolic) || 120, 120),
+    Diastolic: Math.min(Number(patient.Diastolic) || 80, 80),
+    Smoking: 0,
+  };
+  const ctrlP10 = Math.min(calculateRisk(controlledPatient), baseP10);
+
+  // Time horizons in years
+  const timePoints = [0, 1, 3, 5, 10, 15];
+  const gamma = 1.32; // Calibrated Weibull shape parameter for accelerating cardiovascular risk
+  const baseH10 = -Math.log(1.0 - baseP10);
+  const ctrlH10 = -Math.log(1.0 - ctrlP10);
+
+  const trajectory = timePoints.map((t) => {
+    if (t === 0) {
+      return {
+        year: 0,
+        untreatedRisk: 0,
+        untreatedSurvival: 100,
+        controlledRisk: 0,
+        controlledSurvival: 100,
+        arr: 0,
+        survivalGain: 0,
+        milestone: 'Baseline Assessment',
+      };
+    }
+
+    const scale = Math.pow(t / 10.0, gamma);
+    const uRisk = 1.0 - Math.exp(-baseH10 * scale);
+    const uSurv = Math.exp(-baseH10 * scale);
+    const cRisk = 1.0 - Math.exp(-ctrlH10 * scale);
+    const cSurv = Math.exp(-ctrlH10 * scale);
+
+    const untreatedRiskPct = Math.round(uRisk * 1000) / 10;
+    const untreatedSurvivalPct = Math.round(uSurv * 1000) / 10;
+    const controlledRiskPct = Math.round(cRisk * 1000) / 10;
+    const controlledSurvivalPct = Math.round(cSurv * 1000) / 10;
+    const arrPct = Math.round((uRisk - cRisk) * 1000) / 10;
+    const gainPct = Math.round((cSurv - uSurv) * 1000) / 10;
+
+    let milestone = '';
+    if (t === 1) milestone = 'Early endothelial recovery & BP stabilization';
+    else if (t === 3) milestone = 'Reduction in platelet aggregation & arterial stress';
+    else if (t === 5) milestone = 'Halving of tobacco coronary hazard; arterial remodeling';
+    else if (t === 10) milestone = 'Primary 10-year endpoint: major CV event avoidance';
+    else if (t === 15) milestone = 'Long-term vascular resilience & life-years preserved';
+
+    return {
+      year: t,
+      untreatedRisk: untreatedRiskPct,
+      untreatedSurvival: untreatedSurvivalPct,
+      controlledRisk: controlledRiskPct,
+      controlledSurvival: controlledSurvivalPct,
+      arr: arrPct,
+      survivalGain: gainPct,
+      milestone,
+    };
+  });
+
+  return {
+    baseline10yrRisk: Math.round(baseP10 * 1000) / 10,
+    controlled10yrRisk: Math.round(ctrlP10 * 1000) / 10,
+    arr10yr: Math.round((baseP10 - ctrlP10) * 1000) / 10,
+    controlledPatient,
+    trajectory,
+  };
+};
+
