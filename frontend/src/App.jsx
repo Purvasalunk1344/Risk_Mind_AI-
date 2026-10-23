@@ -405,11 +405,6 @@ function App() {
         {/* HERO RESULTS PANEL */}
         <section className="hero-panel">
           <div className="hero-copy">
-            <div className="badge-row">
-              <span className="badge">Framingham Heart Study Cohort</span>
-              <span className="badge model-badge">Active Model: {selectedModel.replace('_', ' ').toUpperCase()}</span>
-            </div>
-
             <h2>Personalized Cardiovascular Mortality Risk</h2>
             <p>
               Real-time prognostic assessment derived from clinical risk factors, blood pressure hemodynamics, serum
