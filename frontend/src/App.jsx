@@ -410,27 +410,6 @@ function App() {
               Real-time prognostic assessment derived from clinical risk factors, blood pressure hemodynamics, serum
               cholesterol, and tobacco exposure.
             </p>
-
-            {/* Model Consensus Bar */}
-            {backendData?.consensus && (
-              <div className="consensus-card">
-                <span className="consensus-title">Cross-Model Algorithm Consensus:</span>
-                <div className="consensus-items">
-                  <div className="consensus-item">
-                    <span>Logistic:</span>
-                    <strong>{Math.round(backendData.consensus.logistic * 100)}%</strong>
-                  </div>
-                  <div className="consensus-item">
-                    <span>Random Forest:</span>
-                    <strong>{Math.round(backendData.consensus.random_forest * 100)}%</strong>
-                  </div>
-                  <div className="consensus-item">
-                    <span>Gradient Boosting:</span>
-                    <strong>{Math.round(backendData.consensus.gradient_boosting * 100)}%</strong>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* MAIN RISK CARD */}
