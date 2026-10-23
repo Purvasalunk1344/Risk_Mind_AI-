@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import json
+import uuid
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import joblib
@@ -19,6 +22,33 @@ CORS(app)
 
 MODELS_DIR = PROJECT_ROOT / "models"
 REPORTS_DIR = PROJECT_ROOT / "output" / "reports"
+SAVED_PATIENTS_JSON = PROJECT_ROOT / "data" / "processed" / "saved_patients.json"
+SAVED_PATIENTS_CSV = PROJECT_ROOT / "data" / "processed" / "saved_patients.csv"
+
+
+def load_saved_patients():
+    if not SAVED_PATIENTS_JSON.exists():
+        return []
+    try:
+        with open(SAVED_PATIENTS_JSON, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[WARN] Failed to load saved patients: {e}")
+        return []
+
+
+def persist_saved_patients(patients):
+    SAVED_PATIENTS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    with open(SAVED_PATIENTS_JSON, "w", encoding="utf-8") as f:
+        json.dump(patients, f, indent=2)
+
+    # Also sync to CSV for direct dataset/tabular inspection
+    if patients:
+        df = pd.DataFrame(patients)
+        df.to_csv(SAVED_PATIENTS_CSV, index=False)
+    elif SAVED_PATIENTS_CSV.exists():
+        SAVED_PATIENTS_CSV.unlink(missing_ok=True)
+
 
 # Cache loaded pipelines in memory for fast scoring
 LOADED_MODELS = {}
@@ -373,6 +403,110 @@ def reports_summary():
             "threshold": 0.20
         }
     })
+
+
+@app.route("/api/patients", methods=["GET"])
+def get_patients():
+    """Retrieve all saved patient records."""
+    patients = load_saved_patients()
+    return jsonify({
+        "success": True,
+        "patients": patients,
+        "total": len(patients)
+    })
+
+
+@app.route("/api/patients/save", methods=["POST"])
+def save_patient():
+    """Save a patient record with vitals, prediction output, and timestamp."""
+    try:
+        data = request.get_json(force=True) or {}
+        patient_name = data.get("name") or data.get("patient_name") or f"Patient-{uuid.uuid4().hex[:6].upper()}"
+
+        # Numeric conversions with safe fallbacks
+        age = float(data.get("AgeAtStart", 50) or 50)
+        sex = _normalize_sex(data.get("Sex", "Female"))
+        systolic = float(data.get("Systolic", 120) or 120)
+        diastolic = float(data.get("Diastolic", 80) or 80)
+        cholesterol = float(data.get("Cholesterol", 200) or 200)
+        weight = float(data.get("Weight", 160) or 160)
+        height = float(data.get("Height", 66) or 66)
+        smoking = float(data.get("Smoking", 0) or 0)
+        notes = str(data.get("notes", "")).strip()
+        model_used = data.get("model", "logistic")
+
+        bmi = round((weight * 703.0 / (height ** 2)) if height > 0 else 25.0, 1)
+
+        # Get or compute prediction
+        risk = data.get("risk")
+        if risk is None:
+            prepared = prepare_full_patient(data)
+            X = pd.DataFrame([prepared])
+            pipe, cols = get_loaded_model(model_used)
+            risk = float(pipe.predict_proba(X[cols])[0, 1])
+        else:
+            risk = float(risk)
+
+        risk_percentage = round(risk * 100, 1)
+        risk_band = "Low" if risk < 0.20 else "Medium" if risk < 0.50 else "High"
+
+        clinical = assess_clinical_metrics(data)
+
+        record = {
+            "id": f"pat_{uuid.uuid4().hex[:8]}",
+            "name": patient_name,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "AgeAtStart": int(age),
+            "Sex": sex,
+            "Systolic": int(systolic),
+            "Diastolic": int(diastolic),
+            "Cholesterol": int(cholesterol),
+            "Weight": int(weight),
+            "Height": int(height),
+            "Smoking": int(smoking),
+            "BMI": bmi,
+            "bp_status": clinical["bp_status"],
+            "chol_status": clinical["chol_status"],
+            "smoke_status": clinical["smoke_status"],
+            "model_used": model_used,
+            "risk": round(risk, 4),
+            "risk_percentage": risk_percentage,
+            "risk_band": risk_band,
+            "notes": notes
+        }
+
+        patients = load_saved_patients()
+        patients.insert(0, record)  # Newest first
+        persist_saved_patients(patients)
+
+        return jsonify({
+            "success": True,
+            "message": f"Patient record for '{patient_name}' saved successfully.",
+            "patient": record,
+            "total": len(patients)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/patients/<patient_id>", methods=["DELETE"])
+def delete_patient(patient_id):
+    """Delete a saved patient record."""
+    try:
+        patients = load_saved_patients()
+        filtered = [p for p in patients if p.get("id") != patient_id]
+        if len(filtered) == len(patients):
+            return jsonify({"success": False, "error": "Record not found"}), 404
+
+        persist_saved_patients(filtered)
+        return jsonify({
+            "success": True,
+            "message": "Record deleted successfully.",
+            "deleted_id": patient_id,
+            "total": len(filtered)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 if __name__ == "__main__":
