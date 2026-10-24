@@ -1,6 +1,6 @@
 # ❤️ Heart Disease Mortality Risk Prediction System & Clinical Studio
 
-An end-to-end clinical machine learning and decision-support system trained on the **Framingham Heart Study** cohort (`SASHELP.HEART`). The system predicts **10-year cardiovascular mortality risk**, explains patient-level risk drivers, evaluates multi-model algorithm consensus, monitors data drift, and provides an interactive clinical web dashboard for healthcare providers and patients.
+An end-to-end clinical machine learning and decision-support system trained on the **Framingham Heart Study** cohort (`SASHELP.HEART`). The system predicts **10-year cardiovascular mortality risk**, calculates dynamic time-to-event Kaplan-Meier survival curves, explains patient-level risk drivers, evaluates multi-model algorithm consensus, monitors data drift, and provides an interactive clinical web studio with generative AI clinical copilot assistance.
 
 ---
 
@@ -10,6 +10,13 @@ An end-to-end clinical machine learning and decision-support system trained on t
 - [Key Features](#-key-features)
 - [Full-Stack System Architecture](#-full-stack-system-architecture)
 - [What the Frontend Tells the User](#-what-the-frontend-tells-the-user)
+  - [1. Risk Verdict & Multi-Model Consensus](#1-how-safe-or-at-risk-is-my-heart-the-risk-verdict)
+  - [2. Vitals & Hemodynamics Diagnosis](#2-how-healthy-are-my-individual-body-measurements-vitals-panel)
+  - [3. Explainability & Factor Attribution](#3-why-is-my-score-so-high-or-low-explainability)
+  - [4. Dynamic Kaplan-Meier Survival Trajectory Curves](#4-what-is-my-time-to-event-trajectory-survival-curves)
+  - [5. Patient Action Plan & Counterfactual Simulation](#5-what-should-i-do-right-now-action-plan--counterfactuals)
+  - [6. Embedded Clinical AI Copilot & Gemini Care Plan](#6-generative-clinical-ai-copilot--dietexercise-protocol)
+  - [7. Patient Record Vault & History](#7-patient-record-vault--longitudinal-tracking)
 - [Machine Learning Pipeline](#-machine-learning-pipeline)
 - [Project Directory Layout](#-project-directory-layout)
 - [Getting Started & Installation](#-getting-started--installation)
@@ -22,102 +29,118 @@ An end-to-end clinical machine learning and decision-support system trained on t
 
 ## 🩺 Executive Summary
 
-Cardiovascular disease remains the leading cause of global mortality. Early, accurate prognostic assessment enables proactive interventions that prevent fatal cardiac events. 
+Cardiovascular disease remains the leading cause of global mortality. Early, accurate prognostic assessment enables proactive interventions that prevent fatal cardiac events before irreversible damage occurs.
 
 This repository delivers:
-1. **A 10-Stage Machine Learning Pipeline**: Covering exploratory data analysis, data cleaning, hemodynamic feature engineering, train/val/test stratified splitting, model training, survival analysis (Kaplan-Meier & Cox PH), explainable AI (SHAP & Odds Ratios), scorecard creation, fairness auditing, and MLOps drift monitoring.
-2. **A Python REST API Backend (`Flask`)**: Serves real-time inference, preloads trained models, calculates clinical metrics, and formats explainability insights.
-3. **An Interactive Clinical Web Studio (`React + Vite`)**: A dark-mode, glassmorphic decision-support application where clinicians and patients explore risk profiles, view cross-model consensus, review physiological contributing factors, and receive customized care plans.
+1. **A 10-Stage Machine Learning Pipeline**: Covering exploratory data analysis, data hygiene, hemodynamic feature engineering, train/val/test stratified splitting, model training, survival analysis (Kaplan-Meier & Cox Proportional Hazards), explainable AI (SHAP & Odds Ratios), clinical scorecard derivation, fairness auditing, and MLOps drift monitoring.
+2. **A Python REST API Backend (`Flask`)**: Serves real-time inference, pre-caches trained scikit-learn models, performs Weibull time-to-event survival trajectory simulations across 15-year horizons, manages patient records, and interfaces with generative AI (Google Gemini & Groq).
+3. **An Interactive Clinical Web Studio (`React + Vite`)**: A dark-mode, glassmorphic decision-support application where clinicians and patients explore risk profiles, view dynamic survival projections, compare counterfactual interventions, chat with an intelligent clinical copilot, and download comprehensive clinical PDF reports.
 
 ---
 
 ## ✨ Key Features
 
-- **Multi-Model Intelligence**: Simultaneously evaluates patients against three distinct machine learning algorithms:
-  - 🏆 **Champion**: Logistic Regression with standardized scaling (Validation AUC: `0.779`)
-  - **Random Forest Classifier**: Ensemble decision tree model
-  - **Gradient Boosting Classifier**: Sequentially optimized gradient trees
-- **Survival Analysis**: Computes time-to-event survival trajectories using Kaplan-Meier survival curves and Cox Proportional Hazards modeling.
+- **Multi-Model Algorithmic Intelligence**: Simultaneously evaluates patients against three distinct machine learning algorithms:
+  - 🏆 **Champion**: Logistic Regression with standardized scaling (Validation ROC-AUC: `0.779`, Brier: `0.165`)
+  - **Random Forest Classifier**: Ensemble decision tree model (`0.768` AUC)
+  - **Gradient Boosting Classifier**: Sequentially optimized gradient trees (`0.774` AUC)
+- **Dynamic Time-to-Event Survival Trajectory Curves (NEW)**:
+  - Interactive Kaplan-Meier & Weibull-scaled survival trajectory modeled at **Years 1, 3, 5, 10, and 15**.
+  - Direct side-by-side comparison of **Untreated Baseline Trajectory** vs. **Controlled Trajectory** (Blood pressure controlled to $\le 120/80\text{ mmHg}$ and smoking stopped).
+  - Live metric readouts for **Absolute Risk Reduction (ARR)** and **Survival Probability Gain (%)**.
+  - Toggle between **Cumulative Mortality Hazard (%)** and **Survival Probability (%)**.
+- **Generative Clinical AI Copilot & Gemini Care Plan (NEW)**:
+  - Embedded conversational AI copilot (powered by Groq / Google Gemini) answering patient-specific inquiries with context-aware physiological citations.
+  - Comprehensive 7-day personalized dietary, aerobic/resistance exercise, and lifestyle prescription generation.
 - **Explainable AI (XAI)**:
   - Statistical **Odds Ratios** with 95% Confidence Intervals via `statsmodels`
-  - **SHAP (SHapley Additive exPlanations)** values and summary plots
+  - **SHAP (SHapley Additive exPlanations)** values and risk factor attribution
   - **Permutation Feature Importance**
 - **Fairness & MLOps Governance**:
   - Subgroup fairness checks across biological sex and age demographics
   - Population Stability Index (PSI) drift monitoring for production deployments
-- **Interactive Patient Presets**: Instant 1-click loading of diverse clinical archetypes (High-Risk Hypertensive Smoker, Moderate Risk, Low Risk / Healthy, Senior Profile).
+- **Longitudinal Patient Vault**:
+  - Save, reload, and manage patient profiles with automatic JSON and CSV two-way synchronization.
+  - Instant 1-click loading of diverse clinical archetypes (High-Risk Hypertensive Smoker, Moderate Risk, Low Risk / Healthy, Senior Profile).
 
 ---
 
 ## 🏛️ Full-Stack System Architecture
 
 ```
-+-----------------------------------------------------------------------------------+
-|                            FRAMINGHAM COHORT DATA                                 |
-|                             (SASHELP.HEART)                                       |
-+-----------------------------------------+-----------------------------------------+
-                                          |
-                                          v
-+-----------------------------------------------------------------------------------+
-|                         10-STAGE PYTHON ML PIPELINE                               |
-|   01_eda -> 02_cleaning -> 03_feature_engineering -> 04_split -> 05_modeling     |
-|   -> 06_evaluation -> 07_survival -> 08_explainability -> 09_fairness -> 10_mlops |
-+-----------------------------------------+-----------------------------------------+
-                                          | Generates
-                                          v
-+-----------------------------------------------------------------------------------+
-|                         MODELS & ANALYTICS ARTIFACTS                              |
-|   models/logistic.pkl | models/random_forest.pkl | models/gradient_boosting.pkl   |
-|   output/plots/*.png  | output/reports/*.csv     | monitoring/drift_summary.json  |
-+-----------------------------------------+-----------------------------------------+
-                                          | Preloaded by
-                                          v
-+-----------------------------------------------------------------------------------+
-|                         FLASK REST API BACKEND (Port 5000)                        |
-|   - Pre-cached Scikit-Learn Pipelines       - Derived Clinical Biomarker Math     |
-|   - Multi-Model Consensus Scoring           - Plain-Language Explainability       |
-+-----------------------------------------+-----------------------------------------+
-                                          ^ Reverse Proxy (/api/*)
-                                          |
-+-----------------------------------------+-----------------------------------------+
-|                      REACT + VITE CLINICAL STUDIO (Port 5173)                     |
-|   - Live Mortality Risk Gauge               - Vitals & Hemodynamics Diagnosis     |
-|   - Cross-Model Consensus Bar               - "Why This Risk?" Contributing List  |
-|   - 1-Click Patient Archetype Presets       - Actionable Patient Care Plan        |
-+-----------------------------------------------------------------------------------+
++-----------------------------------------------------------------------------------------+
+|                               FRAMINGHAM COHORT DATA                                    |
+|                                  (SASHELP.HEART)                                        |
++--------------------------------------------+--------------------------------------------+
+                                             |
+                                             v
++-----------------------------------------------------------------------------------------+
+|                            10-STAGE PYTHON ML PIPELINE                                  |
+|   01_eda -> 02_cleaning -> 03_feature_engineering -> 04_split -> 05_modeling            |
+|   -> 06_evaluation -> 07_survival -> 08_explainability -> 09_fairness -> 10_mlops        |
++--------------------------------------------+--------------------------------------------+
+                                             | Generates
+                                             v
++-----------------------------------------------------------------------------------------+
+|                            MODELS & ANALYTICS ARTIFACTS                                 |
+|   models/logistic.pkl | models/random_forest.pkl | models/gradient_boosting.pkl          |
+|   output/plots/*.png  | output/reports/*.csv     | monitoring/drift_summary.json         |
++--------------------------------------------+--------------------------------------------+
+                                             | Preloaded by
+                                             v
++-----------------------------------------------------------------------------------------+
+|                            FLASK REST API BACKEND (Port 5000)                           |
+|   - Pre-cached Scikit-Learn Pipelines          - Derived Hemodynamic Math               |
+|   - Multi-Model Consensus Scoring              - Time-to-Event Survival Trajectory Math |
+|   - Patient Profile Vault (JSON & CSV Sync)    - Embedded Gemini / Groq Clinical Copilot|
++--------------------------------------------+--------------------------------------------+
+                                             ^ Reverse Proxy (/api/*)
+                                             |
++--------------------------------------------+--------------------------------------------+
+|                         REACT + VITE CLINICAL STUDIO (Port 5173)                        |
+|   - Live Mortality Risk Gauge                  - Vitals & Hemodynamics Diagnosis        |
+|   - Multi-Model Consensus Bar                  - Explainability Factor Attribution      |
+|   - Dynamic Kaplan-Meier Trajectory Curve      - Counterfactual Risk Simulation         |
+|   - Generative Clinical AI Copilot & Care Plan - Longitudinal Patient Record Vault      |
++-----------------------------------------------------------------------------------------+
 ```
 
 ---
 
 ## 🖥️ What the Frontend Tells the User
 
-The frontend acts as an empathetic **digital cardiology consultant**, translating raw medical metrics into four clinical answers:
+The frontend acts as an empathetic **digital cardiology consultant**, translating complex statistical models into actionable, clinically grounded answers:
 
 ```
-+-----------------------------------------------------------------------------------------+
-|  HeartRisk Studio                  [ 🟢 Python ML Backend (Port 5000) ]  [ Model Selector ] |
-|  [ Quick Presets: High Risk | Moderate Risk | Healthy / Low Risk | Senior Profile ]        |
-+-----------------------------------------------------------------------------------------+
-|  HERO RESULTS PANEL:                                                                    |
-|  - 10-Year Mortality Hazard Gauge: e.g., 91% (HIGH RISK TIER)                            |
-|  - Cross-Model Consensus: Logistic (91%) | Random Forest (92%) | Gradient Boosting (93%) |
-+-----------------------------------------------------------------------------------------+
-|  [ 📋 Patient Profile & Vitals ]  [ 🔍 Why This Risk? ]  [ 💡 Patient Action Plan ]     |
-+-----------------------------------------------------------------------------------------+
++-----------------------------------------------------------------------------------------------------+
+|  HeartRisk Studio                     [ 🟢 Python ML Backend (Port 5000) ]       [ Model Selector ]  |
+|  [ Presets: High-Risk Smoker | Moderate Risk | Healthy / Low Risk | Senior Profile | Blank Form ]   |
++-----------------------------------------------------------------------------------------------------+
+|  HERO RESULTS & CONSENSUS PANEL:                                                                    |
+|  - 10-Year Mortality Hazard Gauge: e.g., 91.3% (HIGH RISK TIER)                                     |
+|  - Multi-Model Consensus: Logistic (91.3%) | Random Forest (92.1%) | Gradient Boosting (92.9%)      |
++-----------------------------------------------------------------------------------------------------+
+|  DYNAMIC KAPLAN-MEIER SURVIVAL TRAJECTORY CURVE:                                                    |
+|  - Baseline Untreated vs. Controlled Intervention Curve across Year 1, 3, 5, 10, and 15            |
+|  - Absolute Risk Reduction (ARR) | Survival Gain (%) | Interactive Milestone Timeline Selector      |
++-----------------------------------------------------------------------------------------------------+
+|  [ 📋 Patient Vitals ]  [ 🔍 Why This Risk? ]  [ 💡 Action Plan ]  [ 🤖 Copilot ]  [ 📁 Records ]   |
++-----------------------------------------------------------------------------------------------------+
 ```
 
 ### 1. "How safe or at-risk is my heart?" (The Risk Verdict)
-- **10-Year Mortality Hazard**: Clear percentage gauge (e.g., **`91%`**).
+- **10-Year Mortality Hazard**: High-visibility percentage gauge (e.g., **`91.3%`**).
 - **Risk Tier Badge**:
   - 🟢 **Low Risk (< 20%)**: Heart profile is within safe parameters; routine maintenance.
-  - 🟡 **Medium Risk (20% – 50%)**: Borderline warning; proactive lifestyle/BP management needed.
-  - 🔴 **High Risk (> 50%)**: Clinical alert; requires prompt cardiology review.
-- **Algorithm Consensus**: Displays predictions from Logistic Regression, Random Forest, and Gradient Boosting side-by-side to ensure diagnostic consensus.
+  - 🟡 **Medium Risk (20% – 50%)**: Borderline warning; proactive lifestyle and BP management required.
+  - 🔴 **High Risk (> 50%)**: Clinical alert; requires prompt cardiology evaluation.
+- **Algorithm Consensus**: Displays predictions from Logistic Regression, Random Forest, and Gradient Boosting side-by-side to highlight model agreement.
 
 ### 2. "How healthy are my individual body measurements?" (Vitals Panel)
-- **Blood Pressure Categorization**: Classifies readings into *Optimal*, *Elevated*, *Stage 1 Hypertension*, or *Stage 2 Hypertension* (e.g. `165/96 mmHg`).
-- **Pulse Pressure**: Calculates arterial stiffness ($Systolic - Diastolic$, normal 40–60 mmHg).
-- **Body Mass Index (BMI)**: Computes BMI from height and weight ($BMI = \frac{Weight \times 703}{Height^2}$) with clinical categorization (*Healthy*, *Overweight*, or *Obese*).
+- **Blood Pressure Categorization**: Classifies readings into *Normal*, *Elevated*, *Stage 1 Hypertension*, or *Stage 2 Hypertension* (e.g. `165/96 mmHg`).
+- **Pulse Pressure**: Calculates arterial stiffness ($\text{Systolic} - \text{Diastolic}$, normal 40–60 mmHg).
+- **Mean Arterial Pressure (MAP)**: Approximates perfusion pressure ($\text{Diastolic} + \frac{1}{3}\Delta\text{BP}$).
+- **Body Mass Index (BMI)**: Computes BMI from height and weight ($\text{BMI} = \frac{\text{Weight} \times 703}{\text{Height}^2}$) with clinical categorization (*Healthy*, *Overweight*, or *Obese*).
 - **Cholesterol Status**: Classifies serum lipids (*Desirable <200*, *Borderline*, *High >=240 mg/dL*).
 - **Tobacco Exposure**: Categorizes smoking severity (*Non-smoker*, *Light*, *Moderate*, *Heavy*).
 
@@ -130,23 +153,40 @@ The frontend acts as an empathetic **digital cardiology consultant**, translatin
   - *"Non-smoker: Zero tobacco exposure preserves arterial elasticity."*
   - *"BMI (22.5): Within healthy target range."*
 
-### 4. "What should I do right now to improve my health?" (Action Plan)
-- **Urgency Notice**: Clear guidance based on tier (urgent doctor consultation vs. routine annual screening).
-- **Prescriptive Action Steps**:
-  1. *Initiate or review antihypertensive therapy; aim for target BP under 130/80 mmHg.*
-  2. *Enroll in a structured smoking cessation program (nicotine replacement therapy, counseling).*
-  3. *Order a full fasting lipid panel and discuss statin therapy with a physician.*
+### 4. "What is my time-to-event trajectory?" (Survival Curves)
+- **Longitudinal Projection**: Displays continuous survival probability and cumulative mortality hazard from Year 0 up to Year 15.
+- **Two Comparative Curves**:
+  1. 🔴 **Untreated Baseline Trajectory**: The projected trajectory based on the patient's current clinical measurements.
+  2. 🟢 **Controlled Intervention Trajectory**: The simulated trajectory assuming blood pressure is managed to $\le 120/80\text{ mmHg}$ and tobacco exposure is eliminated.
+- **Interactive Milestone Selector**: Click on Year 1, 3, 5, 10, or 15 to inspect:
+  - Baseline Risk vs. Controlled Risk
+  - **Absolute Risk Reduction (ARR)** (e.g., `-38.4%` at Year 10)
+  - **Survival Gain** (e.g., `+38.4%` increased survival probability)
+- **Shaded Therapeutic Benefit Area**: Highlights the preventable mortality window directly on the SVG canvas.
+
+### 5. "What should I do right now?" (Action Plan & Counterfactuals)
+- **Counterfactual Risk Simulator**: Demonstrates immediate quantifiable impact:
+  - *"If you normalize blood pressure and stop smoking, your 10-year risk drops from 91.3% to 48.7% (a 42.6% absolute risk reduction)."*
 - **Concrete Patient Target Milestones**:
   - Target Blood Pressure: **< 120/80 mmHg**
   - Target Cholesterol: **< 200 mg/dL**
   - Target Tobacco Use: **0 cigarettes/day**
   - Target Physical Activity: **150 min/week aerobic exercise**
 
+### 6. Generative Clinical AI Copilot & Diet/Exercise Protocol
+- **Physician & Patient AI Copilot**: Ask specific clinical questions (*"What are the pharmacological indications for this patient's BP?"*, *"What dietary changes reduce arterial stiffness?"*).
+- **Structured 7-Day Care Plan**: Generates a day-by-day workout regimen, sodium targets, tailored dietary guidance, and clinical follow-up timelines via Gemini AI.
+
+### 7. Patient Record Vault & Longitudinal Tracking
+- **Saved Profiles**: Save evaluated patient records with custom clinical notes.
+- **Reload & Retest**: 1-click loading from the saved patients drawer to compare progression over time.
+- **Download Medical Report**: Printable PDF/report summary for electronic health records (EHR).
+
 ---
 
 ## 🔬 Machine Learning Pipeline
 
-The pipeline is organized into sequential, modular Python scripts located in [`programs/`](file:///c:/Users/sneha/OneDrive/Desktop/Heart_Risk_Project/heart_Risk_Prediction_Project/programs):
+The pipeline is organized into sequential, modular Python scripts located in [`programs/`](file:///c:/Data%20analytics/Project/heart_Risk_Prediction_Project/programs):
 
 | Step | Script | Description |
 | :--- | :--- | :--- |
@@ -171,7 +211,10 @@ The pipeline is organized into sequential, modular Python scripts located in [`p
 ```
 heart_Risk_Prediction_Project/
 ├── backend/
-│   └── server.py                   # Production Flask REST API server (port 5000)
+│   ├── server.py                   # Production Flask REST API server (port 5000)
+│   ├── clinical_copilot.py         # AI Clinical Copilot engine (Gemini / Groq / OpenAI)
+│   ├── .env                        # API keys configuration (GEMINI_API_KEY, GROQ_API_KEY)
+│   └── .env.example                # Example environment variables template
 ├── frontend/
 │   ├── package.json                # React + Vite dependencies
 │   ├── vite.config.js              # Vite server & reverse proxy to backend
@@ -179,8 +222,10 @@ heart_Risk_Prediction_Project/
 │   │   ├── App.jsx                 # Clinical dashboard UI & state management
 │   │   ├── styles.css              # Custom responsive glassmorphic styling
 │   │   ├── main.jsx                # React entry point
+│   │   ├── components/
+│   │   │   └── SurvivalTrajectoryCurve.jsx  # Interactive Kaplan-Meier trajectory SVG component
 │   │   └── data/
-│   │       └── scoreLogic.js       # Fallback local calculations & presets
+│   │       └── scoreLogic.js       # Fallback local scoring, presets & survival math
 │   └── README.md                   # Frontend architecture notes
 ├── programs/
 │   ├── 00_export_raw.sas           # SAS raw export
@@ -236,30 +281,41 @@ npm install
 cd ..
 ```
 
+### 4. (Optional) Configure AI Copilot Keys
+To enable Google Gemini or Groq AI care plan features, copy `backend/.env.example` to `backend/.env` and add your API key:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+# or
+GROQ_API_KEY=your_groq_api_key_here
+```
+
 ---
 
 ## 🏃 How to Run the Project
 
 ### Option A: Run the End-to-End ML Pipeline
 To retrain models and regenerate all plots and reports from scratch:
-```bash
+```powershell
 cd programs
 python run_all.py
 ```
 *(Takes ~2.5 minutes to complete all 10 stages).*
 
+---
+
 ### Option B: Run the Full-Stack Application (Backend + Frontend)
 
-Open two terminal windows:
+Open **two separate terminal windows**:
 
 #### Terminal 1 — Start the Python API Backend:
-```bash
-python backend/server.py
+```powershell
+cd backend
+python server.py
 ```
 *Backend will start on `http://127.0.0.1:5000` with pre-cached models.*
 
 #### Terminal 2 — Start the React Frontend:
-```bash
+```powershell
 cd frontend
 npm run dev
 ```
@@ -282,6 +338,8 @@ Verifies backend connectivity and lists available models.
   "threshold": 0.20
 }
 ```
+
+---
 
 ### `POST /api/predict`
 Calculates risk, multi-model consensus, vitals diagnostics, and patient guidance.
@@ -343,8 +401,82 @@ Calculates risk, multi-model consensus, vitals diagnostics, and patient guidance
 }
 ```
 
+---
+
+### `POST /api/survival-trajectory`
+Calculates dynamic time-to-event Kaplan-Meier trajectories comparing untreated baseline vs. controlled intervention profiles at Years 1, 3, 5, 10, and 15.
+
+**Request Body:**
+```json
+{
+  "AgeAtStart": 58,
+  "Sex": "Male",
+  "Systolic": 165,
+  "Diastolic": 96,
+  "Cholesterol": 248,
+  "Weight": 195,
+  "Height": 68,
+  "Smoking": 20,
+  "model": "logistic"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "model_used": "logistic",
+  "baseline_10yr_risk": 91.3,
+  "controlled_10yr_risk": 48.7,
+  "absolute_reduction_10yr": 42.6,
+  "trajectory": [
+    { "year": 0, "untreated_risk": 0.0, "untreated_survival": 100.0, "controlled_risk": 0.0, "controlled_survival": 100.0, "absolute_risk_reduction": 0.0, "survival_gain": 0.0 },
+    { "year": 1, "untreated_risk": 11.2, "untreated_survival": 88.8, "controlled_risk": 3.1, "controlled_survival": 96.9, "absolute_risk_reduction": 8.1, "survival_gain": 8.1 },
+    { "year": 3, "untreated_risk": 39.5, "untreated_survival": 60.5, "controlled_risk": 12.8, "controlled_survival": 87.2, "absolute_risk_reduction": 26.7, "survival_gain": 26.7 },
+    { "year": 5, "untreated_risk": 64.2, "untreated_survival": 35.8, "controlled_risk": 24.3, "controlled_survival": 75.7, "absolute_risk_reduction": 39.9, "survival_gain": 39.9 },
+    { "year": 10, "untreated_risk": 91.3, "untreated_survival": 8.7, "controlled_risk": 48.7, "controlled_survival": 51.3, "absolute_risk_reduction": 42.6, "survival_gain": 42.6 },
+    { "year": 15, "untreated_risk": 98.4, "untreated_survival": 1.6, "controlled_risk": 68.2, "controlled_survival": 31.8, "absolute_risk_reduction": 30.2, "survival_gain": 30.2 }
+  ]
+}
+```
+
+---
+
+### `POST /api/copilot`
+Interactive clinical AI conversation assistant for clinicians and patients.
+
+**Request Body:**
+```json
+{
+  "message": "What is the expected survival gain if the patient ceases tobacco usage?",
+  "patient": {
+    "AgeAtStart": 58,
+    "Sex": "Male",
+    "Systolic": 165,
+    "Diastolic": 96,
+    "Smoking": 20,
+    "risk": 0.913
+  },
+  "history": []
+}
+```
+
+---
+
+### `POST /api/ai-guidance`
+Generates a structured, clinical-grade 7-day care plan via Google Gemini AI.
+
+---
+
+### `GET /api/patients` & `POST /api/patients/save` & `DELETE /api/patients/<id>`
+Manages saved patient records with instant JSON and CSV synchronization.
+
+---
+
 ### `GET /api/presets`
 Returns pre-configured clinical archetypes for demonstration.
+
+---
 
 ### `GET /api/reports/summary`
 Returns tabular statistical odds ratios and model card metrics.
@@ -360,7 +492,7 @@ Returns tabular statistical odds ratios and model card metrics.
 | **Random Forest** | 0.768 | 0.171 | Challenger (Tree ensemble) |
 
 - **Optimal Classification Threshold**: `0.20` (Calibrated to balance sensitivity for early life-saving clinical interventions).
-- **Diagnostic Plots**: All 12 evaluation charts (ROC, Calibration, Kaplan-Meier, SHAP, Permutation Importance) are archived in [`output/plots/`](file:///c:/Users/sneha/OneDrive/Desktop/Heart_Risk_Project/heart_Risk_Prediction_Project/output/plots).
+- **Diagnostic Plots**: All 12 evaluation charts (ROC, Calibration, Kaplan-Meier, SHAP, Permutation Importance) are archived in [`output/plots/`](file:///c:/Data%20analytics/Project/heart_Risk_Prediction_Project/output/plots).
 
 ---
 
