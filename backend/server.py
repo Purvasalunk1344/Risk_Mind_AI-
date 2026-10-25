@@ -45,30 +45,69 @@ for p in [str(PROJECT_ROOT), str(PROGRAMS_DIR), str(MACROS_DIR)]:
         sys.path.insert(0, p)
 
 try:
-    from macros.score_patient import _normalize_sex, _smoke_band
+    from macros.serving import validate_patient_input, prepare_serving_patient, normalize_sex, smoke_band
+    _normalize_sex = normalize_sex
+    _smoke_band = smoke_band
 except ImportError:
     try:
-        from score_patient import _normalize_sex, _smoke_band
+        from serving import validate_patient_input, prepare_serving_patient, normalize_sex, smoke_band
+        _normalize_sex = normalize_sex
+        _smoke_band = smoke_band
     except ImportError:
-        def _normalize_sex(value):
-            if pd.isna(value):
-                return "Unknown"
-            text = str(value).strip().lower()
-            mapping = {"m": "Male", "male": "Male", "man": "Male",
-                       "f": "Female", "female": "Female", "woman": "Female"}
-            return mapping.get(text, str(value).title())
+        try:
+            from macros.score_patient import _normalize_sex, _smoke_band
+        except ImportError:
+            try:
+                from score_patient import _normalize_sex, _smoke_band
+            except ImportError:
+                def _normalize_sex(value):
+                    if pd.isna(value):
+                        return "Unknown"
+                    text = str(value).strip().lower()
+                    mapping = {"m": "Male", "male": "Male", "man": "Male",
+                               "f": "Female", "female": "Female", "woman": "Female"}
+                    return mapping.get(text, str(value).title())
 
-        def _smoke_band(smoking):
-            if smoking is None or pd.isna(smoking) or str(smoking).strip() == "":
-                return "Unknown"
-            smoking = float(smoking)
-            if smoking == 0:
-                return "None"
-            if smoking < 15:
-                return "Light"
-            if smoking < 25:
-                return "Moderate"
-            return "Heavy"
+                def _smoke_band(smoking):
+                    if smoking is None or pd.isna(smoking) or str(smoking).strip() == "":
+                        return "Unknown"
+                    smoking = float(smoking)
+                    if smoking == 0:
+                        return "None"
+                    if smoking < 15:
+                        return "Light"
+                    if smoking < 25:
+                        return "Moderate"
+                    return "Heavy"
+
+        def validate_patient_input(record):
+            return True, None
+
+        def prepare_serving_patient(raw_record):
+            rec = dict(raw_record)
+            rec["Sex"] = _normalize_sex(rec.get("Sex", "Female"))
+            age = float(rec.get("AgeAtStart", 50) or 50)
+            systolic = float(rec.get("Systolic", 120) or 120)
+            diastolic = float(rec.get("Diastolic", 80) or 80)
+            smoking = float(rec.get("Smoking", 0) or 0)
+            weight = float(rec.get("Weight", 160) or 160)
+            height = float(rec.get("Height", 66) or 66)
+            cholesterol = float(rec.get("Cholesterol", 200) or 200)
+            rec["AgeAtStart"] = age
+            rec["Systolic"] = systolic
+            rec["Diastolic"] = diastolic
+            rec["Smoking"] = smoking
+            rec["Cholesterol"] = cholesterol
+            bmi = (weight * 703.0 / (height ** 2)) if height > 0 else 25.0
+            rec["BMI"] = bmi
+            rec["Smoke_Band"] = _smoke_band(smoking)
+            rec["Chol_Missing"] = 0
+            rec["Smoke_Missing"] = 0
+            rec["Pulse_Pressure"] = systolic - diastolic
+            rec["MAP"] = diastolic + (systolic - diastolic) / 3.0
+            rec["Hypertension"] = int(systolic >= 140 or diastolic >= 90)
+            rec["Age_x_Systolic"] = age * systolic
+            return rec
 
 app = Flask(__name__)
 CORS(app)
@@ -115,6 +154,19 @@ def get_loaded_model(model_name="logistic"):
         LOADED_MODELS[model_name] = (pipe, cols)
     return LOADED_MODELS[model_name]
 
+# Cox Survival Model Loader
+SURVIVAL_MODEL_PATH = MODELS_DIR / "survival_cox.pkl"
+LOADED_COX = None
+
+def get_loaded_cox():
+    global LOADED_COX
+    if LOADED_COX is None:
+        if not SURVIVAL_MODEL_PATH.exists():
+            raise FileNotFoundError(f"Survival model file {SURVIVAL_MODEL_PATH} not found.")
+        cph, cols, max_fu = joblib.load(SURVIVAL_MODEL_PATH)
+        LOADED_COX = (cph, cols, max_fu)
+    return LOADED_COX
+
 # Warm up models on start
 for m in ["logistic", "random_forest", "gradient_boosting"]:
     try:
@@ -123,47 +175,16 @@ for m in ["logistic", "random_forest", "gradient_boosting"]:
     except Exception as e:
         print(f"[WARN] Could not preload {m}: {e}")
 
+try:
+    get_loaded_cox()
+    print("[OK] Preloaded survival model: survival_cox")
+except Exception as e:
+    print(f"[WARN] Could not preload survival model: {e}")
+
 
 def prepare_full_patient(raw_record):
     """Transform raw patient inputs into feature layout required by any of the 3 models."""
-    rec = dict(raw_record)
-
-    # Normalize sex
-    rec["Sex"] = _normalize_sex(rec.get("Sex", "Female"))
-
-    # Numeric conversions with safe fallbacks
-    age = float(rec.get("AgeAtStart", 50) or 50)
-    systolic = float(rec.get("Systolic", 120) or 120)
-    diastolic = float(rec.get("Diastolic", 80) or 80)
-    smoking = float(rec.get("Smoking", 0) or 0)
-    weight = float(rec.get("Weight", 160) or 160)
-    height = float(rec.get("Height", 66) or 66)
-    cholesterol = float(rec.get("Cholesterol", 200) or 200)
-
-    rec["AgeAtStart"] = age
-    rec["Systolic"] = systolic
-    rec["Diastolic"] = diastolic
-    rec["Smoking"] = smoking
-    rec["Cholesterol"] = cholesterol
-
-    # BMI
-    bmi = (weight * 703.0 / (height ** 2)) if height > 0 else 25.0
-    rec["BMI"] = bmi
-
-    # Smoke band
-    rec["Smoke_Band"] = _smoke_band(smoking)
-
-    # Missing flags
-    rec["Chol_Missing"] = 0
-    rec["Smoke_Missing"] = 0
-
-    # Engineered clinical features for RF and Gradient Boosting
-    rec["Pulse_Pressure"] = systolic - diastolic
-    rec["MAP"] = diastolic + (systolic - diastolic) / 3.0
-    rec["Hypertension"] = int(systolic >= 140 or diastolic >= 90)
-    rec["Age_x_Systolic"] = age * systolic
-
-    return rec
+    return prepare_serving_patient(raw_record)
 
 
 def assess_clinical_metrics(record):
@@ -311,9 +332,16 @@ def health():
 
 
 @app.route("/api/predict", methods=["POST"])
+@app.route("/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json(force=True) or {}
+
+        # Validate input bounds
+        is_valid, err_msg = validate_patient_input(data)
+        if not is_valid:
+            return jsonify({"success": False, "error": err_msg}), 400
+
         model_name = data.get("model", "logistic")
         threshold = float(data.get("threshold", 0.20))
 
@@ -334,6 +362,15 @@ def predict():
             except Exception as e:
                 print(f"Error evaluating {m_name}: {e}")
 
+        # Controlled scenario for selected model (BP <= 120/80 mmHg, Smoking = 0)
+        ctrl_data = dict(data)
+        ctrl_data["Systolic"] = min(float(data.get("Systolic", 120)), 120.0)
+        ctrl_data["Diastolic"] = min(float(data.get("Diastolic", 80)), 80.0)
+        ctrl_data["Smoking"] = 0.0
+        ctrl_prep = prepare_full_patient(ctrl_data)
+        X_ctrl = pd.DataFrame([ctrl_prep])
+        ctrl_prob = float(pipe.predict_proba(X_ctrl[cols])[0, 1])
+
         band = "Low" if prob < 0.20 else "Medium" if prob < 0.50 else "High"
         flagged = bool(prob >= threshold)
 
@@ -345,6 +382,10 @@ def predict():
             "model_used": model_name,
             "risk": round(prob, 4),
             "risk_percentage": round(prob * 100, 1),
+            "controlled_risk": round(ctrl_prob, 4),
+            "controlled_risk_percentage": round(ctrl_prob * 100, 1),
+            "scenario_difference_percentage": round((prob - ctrl_prob) * 100, 1),
+            "scenario_label": "Illustrative scenario, not a predicted treatment effect (the model measures association, not causation)",
             "risk_band": band,
             "flagged": flagged,
             "threshold": threshold,
@@ -360,6 +401,96 @@ def predict():
                 "BMI": round(prepared.get("BMI", 0), 1),
                 "Smoke_Band": prepared.get("Smoke_Band"),
             }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/survival", methods=["POST"])
+@app.route("/survival", methods=["POST"])
+def survival():
+    try:
+        data = request.get_json(force=True) or {}
+
+        # Validate input bounds
+        is_valid, err_msg = validate_patient_input(data)
+        if not is_valid:
+            return jsonify({"success": False, "error": err_msg}), 400
+
+        cph, covs, max_fu = get_loaded_cox()
+        prep = prepare_serving_patient(data)
+        male_val = 1 if prep["Sex"] == "Male" else 0
+
+        # Untreated baseline
+        untreated_row = pd.DataFrame([{
+            "AgeAtStart": prep["AgeAtStart"],
+            "Male": male_val,
+            "Systolic": prep["Systolic"],
+            "Cholesterol": prep["Cholesterol"],
+            "BMI": prep["BMI"],
+            "Smoking": prep["Smoking"]
+        }])
+
+        # Controlled scenario (Systolic <= 120, Diastolic <= 80, Smoking = 0)
+        controlled_row = pd.DataFrame([{
+            "AgeAtStart": prep["AgeAtStart"],
+            "Male": male_val,
+            "Systolic": min(prep["Systolic"], 120.0),
+            "Cholesterol": prep["Cholesterol"],
+            "BMI": prep["BMI"],
+            "Smoking": 0.0
+        }])
+
+        time_points = [1.0, 3.0, 5.0, 10.0, 15.0, float(max_fu)]
+
+        u_surv_df = cph.predict_survival_function(untreated_row, times=time_points)
+        c_surv_df = cph.predict_survival_function(controlled_row, times=time_points)
+
+        trajectory = []
+        # Year 0 baseline
+        trajectory.append({
+            "year": 0,
+            "untreatedSurvival": 100.0,
+            "untreatedRisk": 0.0,
+            "controlledSurvival": 100.0,
+            "controlledRisk": 0.0,
+            "difference": 0.0
+        })
+
+        for t in time_points:
+            t_int = int(t) if t.is_integer() else round(t, 1)
+            u_s = float(u_surv_df.loc[t].iloc[0])
+            c_s = float(c_surv_df.loc[t].iloc[0])
+
+            u_surv_pct = round(u_s * 100.0, 2)
+            u_risk_pct = round((1.0 - u_s) * 100.0, 2)
+            c_surv_pct = round(c_s * 100.0, 2)
+            c_risk_pct = round((1.0 - c_s) * 100.0, 2)
+            # Unclamped difference in scenario
+            diff_pct = round(c_surv_pct - u_surv_pct, 2)
+
+            trajectory.append({
+                "year": t_int,
+                "untreatedSurvival": u_surv_pct,
+                "untreatedRisk": u_risk_pct,
+                "controlledSurvival": c_surv_pct,
+                "controlledRisk": c_risk_pct,
+                "difference": diff_pct
+            })
+
+        survival_probabilities = {
+            f"year_{int(t) if t.is_integer() else str(t).replace('.', '_')}": round(float(u_surv_df.loc[t].iloc[0]), 4)
+            for t in time_points
+        }
+
+        return jsonify({
+            "success": True,
+            "model": "CoxPHFitter",
+            "time_points": [int(t) if t.is_integer() else t for t in time_points],
+            "survival_probabilities": survival_probabilities,
+            "trajectory": trajectory,
+            "note": "Survivors are assumed censored at 32 years; the dataset has no follow-up end date.",
+            "disclaimer": "Illustrative scenario, not a predicted treatment effect (the model measures association, not causation)"
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400

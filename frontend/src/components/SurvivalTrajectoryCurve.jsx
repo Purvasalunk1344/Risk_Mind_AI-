@@ -1,37 +1,49 @@
 import React, { useState, useMemo } from 'react';
 
 /**
- * SurvivalTrajectoryCurve: Interactive Kaplan-Meier & Cumulative Event Risk Trajectory
+ * SurvivalTrajectoryCurve: Interactive Cox Proportional Hazards Predicted Survival & Risk Trajectory
  * Compares:
  *   1. "Your trajectory if untreated" (Baseline risk profile)
- *   2. "Your trajectory if blood pressure & smoking are controlled" (Target BP <= 120/80 mmHg, 0 cigs/day)
- * Displays longitudinal time-to-event progression at Year 1, 3, 5, 10, and 15.
+ *   2. "Scenario if blood pressure & smoking are controlled" (BP <= 120/80 mmHg, 0 cigs/day)
+ * Displays longitudinal time-to-event progression at Years 1, 3, 5, 10, 15, and 32.
+ *
+ * NOTE: Illustrative scenario, not a predicted treatment effect (the model measures association, not causation).
+ * Survivors are assumed censored at 32 years; the dataset has no follow-up end date.
+ * Educational project, not medical advice.
  */
 export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
-  const [viewMode, setViewMode] = useState('hazard'); // 'hazard' (Risk %) | 'survival' (Survival %)
+  const [viewMode, setViewMode] = useState('hazard'); // 'hazard' (Predicted cumulative risk %) | 'survival' (Predicted survival %)
   const [selectedYear, setSelectedYear] = useState(10);
   const [hoveredPoint, setHoveredPoint] = useState(null);
 
   const trajectory = trajectoryData?.trajectory || [];
+  const maxYear = useMemo(() => {
+    if (!trajectory.length) return 32;
+    return Math.max(...trajectory.map((p) => p.year), 32);
+  }, [trajectory]);
 
   // Find the selected milestone data point (default year 10)
   const activePoint = useMemo(() => {
     const focusYear = hoveredPoint !== null ? hoveredPoint : selectedYear;
-    return trajectory.find((p) => p.year === focusYear) || trajectory.find((p) => p.year === 10) || trajectory[trajectory.length - 1];
+    return (
+      trajectory.find((p) => p.year === focusYear) ||
+      trajectory.find((p) => p.year === 10) ||
+      trajectory[trajectory.length - 1]
+    );
   }, [trajectory, selectedYear, hoveredPoint]);
 
   // SVG dimensions
-  const svgWidth = 820;
+  const svgWidth = 840;
   const svgHeight = 330;
-  const margin = { top: 35, right: 45, bottom: 45, left: 60 };
+  const margin = { top: 35, right: 50, bottom: 45, left: 60 };
   const innerWidth = svgWidth - margin.left - margin.right;
   const innerHeight = svgHeight - margin.top - margin.bottom;
 
-  // Scale mappings: X = Years 0 to 15, Y = 0% to 100%
-  const getX = (year) => margin.left + (year / 15.0) * innerWidth;
+  // Scale mappings: X = Years 0 to maxYear (32), Y = 0% to 100%
+  const getX = (year) => margin.left + (year / maxYear) * innerWidth;
   const getY = (val) => margin.top + innerHeight - (Math.min(Math.max(val, 0), 100) / 100.0) * innerHeight;
 
-  // Generate SVG path for a given key ('untreated_risk' / 'untreated_survival' / etc.)
+  // Generate SVG path for a given key
   const createPath = (valueKey) => {
     if (!trajectory.length) return '';
     return trajectory
@@ -43,18 +55,16 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
       .join(' ');
   };
 
-  // Generate shaded area between the two curves
+  // Generate shaded area between the two curves (without forced positive clamping)
   const createAreaPath = () => {
     if (trajectory.length < 2) return '';
-    const uKey = viewMode === 'hazard' ? 'untreatedRisk' : 'controlledSurvival';
-    const cKey = viewMode === 'hazard' ? 'controlledRisk' : 'untreatedSurvival';
+    const uKey = viewMode === 'hazard' ? 'untreatedRisk' : 'untreatedSurvival';
+    const cKey = viewMode === 'hazard' ? 'controlledRisk' : 'controlledSurvival';
 
-    // Forward path along upper curve
     let d = `M ${getX(trajectory[0].year)} ${getY(trajectory[0][uKey])}`;
     for (let i = 1; i < trajectory.length; i++) {
       d += ` L ${getX(trajectory[i].year)} ${getY(trajectory[i][uKey])}`;
     }
-    // Backward path along lower curve
     for (let i = trajectory.length - 1; i >= 0; i--) {
       d += ` L ${getX(trajectory[i].year)} ${getY(trajectory[i][cKey])}`;
     }
@@ -71,23 +81,43 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
 
   // Y-axis grid marks (0%, 20%, 40%, 60%, 80%, 100%)
   const yTicks = [0, 20, 40, 60, 80, 100];
-  const yearMilestones = [1, 3, 5, 10, 15];
+  const yearMilestones = [1, 3, 5, 10, 15, 32];
 
   const currentBp = `${patient?.Systolic || 120}/${patient?.Diastolic || 80} mmHg`;
   const currentSmoking = patient?.Smoking > 0 ? `${patient.Smoking} cigs/day` : 'Non-smoker';
 
   return (
     <div className="survival-trajectory-container">
+      {/* DISCLAIMER BANNER */}
+      <div style={{
+        padding: '10px 16px',
+        background: 'rgba(239, 68, 68, 0.1)',
+        border: '1px solid rgba(239, 68, 68, 0.3)',
+        borderRadius: '8px',
+        marginBottom: '16px',
+        fontSize: '12px',
+        color: '#fca5a5',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <span style={{ fontSize: '15px' }}>⚠️</span>
+        <div>
+          <strong>Educational project, not medical advice.</strong> All outputs are statistical associations derived from historical SASHELP.HEART data. Discuss any health concerns with a qualified clinician.
+        </div>
+      </div>
+
       {/* SECTION HEADER & VIEW TOGGLE */}
       <div className="st-header">
         <div className="st-header-title">
           <div className="st-badge">
             <span className="st-pulse-dot" />
-            <span>Time-to-Event Prognosis (Kaplan-Meier Methodology)</span>
+            <span>Time-to-Event Prognosis (Cox Proportional Hazards Model)</span>
           </div>
-          <h4>Longitudinal Risk & Event-Free Survival Trajectory</h4>
+          <h4>Longitudinal Survival & Risk Trajectory</h4>
           <p className="st-subtitle">
-            Evaluates cardiovascular event hazard at <strong>Year 1, 3, 5, 10, and 15</strong> comparing baseline untreated trajectory against complete blood pressure control (≤120/80 mmHg) and smoking cessation.
+            Longitudinal survival modeled by Cox PH across follow-up time points (Years 1, 3, 5, 10, 15, and 32).
+            Survivors are assumed censored at 32 years; the dataset has no follow-up end date.
           </p>
         </div>
 
@@ -98,25 +128,25 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
             className={`st-toggle-btn ${viewMode === 'hazard' ? 'active' : ''}`}
             onClick={() => setViewMode('hazard')}
           >
-            📈 Cumulative Event Hazard (%)
+            📈 Predicted cumulative risk
           </button>
           <button
             type="button"
             className={`st-toggle-btn ${viewMode === 'survival' ? 'active' : ''}`}
             onClick={() => setViewMode('survival')}
           >
-            🛡️ Kaplan-Meier Survival Rate (%)
+            🛡️ Predicted survival (Cox model)
           </button>
         </div>
       </div>
 
-      {/* COMPARATIVE LEGEND & CURRENT VITALS CALLOUT */}
+      {/* COMPARATIVE LEGEND */}
       <div className="st-legend-bar">
         <div className="st-legend-item untreated">
           <span className="st-legend-line red" />
           <span className="st-legend-dot red" />
           <div>
-            <strong>Your Trajectory If Untreated</strong>
+            <strong>Untreated baseline</strong>
             <span className="st-legend-sub">
               Baseline parameters ({currentBp}, {currentSmoking})
             </span>
@@ -127,9 +157,9 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
           <span className="st-legend-line green" />
           <span className="st-legend-dot green" />
           <div>
-            <strong>Your Trajectory If BP & Smoking Are Controlled</strong>
+            <strong>Controlled scenario (BP ≤ 120/80, 0 cigs)</strong>
             <span className="st-legend-sub">
-              Target BP ≤ 120/80 mmHg + Complete Smoking Cessation (0 cigs)
+              Illustrative scenario, not a predicted treatment effect (the model measures association, not causation)
             </span>
           </div>
         </div>
@@ -137,8 +167,8 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
         <div className="st-legend-item benefit">
           <span className="st-legend-swatch" />
           <div>
-            <strong>Survival Advantage Zone</strong>
-            <span className="st-legend-sub">Absolute risk averted through intervention</span>
+            <strong>Difference in the scenario</strong>
+            <span className="st-legend-sub">Model-predicted gap between profiles</span>
           </div>
         </div>
       </div>
@@ -151,30 +181,26 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
           preserveAspectRatio="xMidYMid meet"
         >
           <defs>
-            {/* Shaded benefit area gradient */}
             <linearGradient id="stBenefitGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#059669" stopOpacity="0.45" />
+              <stop offset="0%" stopColor="#10b981" stopOpacity="0.20" />
+              <stop offset="100%" stopColor="#059669" stopOpacity="0.35" />
             </linearGradient>
 
-            {/* Untreated line gradient (Rose Neon) */}
             <linearGradient id="stUntreatedGrad" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#f87171" />
               <stop offset="100%" stopColor="#ef4444" />
             </linearGradient>
 
-            {/* Controlled line gradient (Emerald Glow) */}
             <linearGradient id="stControlledGrad" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#34d399" />
               <stop offset="100%" stopColor="#10b981" />
             </linearGradient>
 
-            {/* Glow filters */}
             <filter id="stRedGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="2" stdDeviation="3.5" floodColor="#ef4444" floodOpacity="0.6" />
+              <feDropShadow dx="0" dy="2" stdDeviation="3.5" floodColor="#ef4444" floodOpacity="0.5" />
             </filter>
             <filter id="stGreenGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="2" stdDeviation="3.5" floodColor="#10b981" floodOpacity="0.6" />
+              <feDropShadow dx="0" dy="2" stdDeviation="3.5" floodColor="#10b981" floodOpacity="0.5" />
             </filter>
           </defs>
 
@@ -206,57 +232,8 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
             );
           })}
 
-          {/* CLINICAL THRESHOLD BENCHMARK LINES */}
-          {viewMode === 'hazard' && (
-            <>
-              {/* 20% Clinical threshold */}
-              <line
-                x1={margin.left}
-                y1={getY(20)}
-                x2={svgWidth - margin.right}
-                y2={getY(20)}
-                stroke="#f59e0b"
-                strokeWidth="1.2"
-                strokeDasharray="4 4"
-                strokeOpacity="0.55"
-              />
-              <text
-                x={svgWidth - margin.right - 6}
-                y={getY(20) - 5}
-                textAnchor="end"
-                fill="#f59e0b"
-                fontSize="10"
-                fontWeight="600"
-              >
-                20% Moderate Threshold
-              </text>
-
-              {/* 50% High risk tier */}
-              <line
-                x1={margin.left}
-                y1={getY(50)}
-                x2={svgWidth - margin.right}
-                y2={getY(50)}
-                stroke="#ef4444"
-                strokeWidth="1.2"
-                strokeDasharray="4 4"
-                strokeOpacity="0.5"
-              />
-              <text
-                x={svgWidth - margin.right - 6}
-                y={getY(50) - 5}
-                textAnchor="end"
-                fill="#ef4444"
-                fontSize="10"
-                fontWeight="600"
-              >
-                50% High Hazard Tier
-              </text>
-            </>
-          )}
-
           {/* X-AXIS GRID LINES & MILESTONE LABELS */}
-          {[0, 1, 3, 5, 10, 15].map((year) => {
+          {[0, 1, 3, 5, 10, 15, 32].map((year) => {
             const x = getX(year);
             const isSelected = (hoveredPoint !== null ? hoveredPoint : selectedYear) === year;
             return (
@@ -266,7 +243,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
                   y1={margin.top}
                   x2={x}
                   y2={svgHeight - margin.bottom}
-                  stroke={isSelected ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.05)'}
+                  stroke={isSelected ? 'rgba(56, 189, 248, 0.35)' : 'rgba(255, 255, 255, 0.06)'}
                   strokeDasharray="3 3"
                 />
                 <text
@@ -274,11 +251,11 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
                   y={svgHeight - margin.bottom + 22}
                   textAnchor="middle"
                   fill={isSelected ? '#38bdf8' : 'rgba(148, 163, 184, 0.9)'}
-                  fontSize="12"
+                  fontSize="11"
                   fontWeight={isSelected || year === 10 ? '700' : '500'}
                   fontFamily="Inter, sans-serif"
                 >
-                  {year === 0 ? 'Baseline' : `Year ${year}`}
+                  {year === 0 ? 'Baseline' : `Yr ${year}`}
                 </text>
               </g>
             );
@@ -292,7 +269,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
             d={untreatedPath}
             fill="none"
             stroke="url(#stUntreatedGrad)"
-            strokeWidth="3.5"
+            strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
             filter="url(#stRedGlow)"
@@ -303,7 +280,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
             d={controlledPath}
             fill="none"
             stroke="url(#stControlledGrad)"
-            strokeWidth="3.5"
+            strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
             filter="url(#stGreenGlow)"
@@ -342,30 +319,29 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
                 <circle
                   cx={x}
                   cy={yUntreated}
-                  r={isFocused ? 7 : 5}
+                  r={isFocused ? 6.5 : 4.5}
                   fill="#ef4444"
                   stroke="#ffffff"
-                  strokeWidth={isFocused ? 2.5 : 1.5}
+                  strokeWidth={isFocused ? 2 : 1}
                 />
 
                 {/* Controlled Dot */}
                 <circle
                   cx={x}
                   cy={yControlled}
-                  r={isFocused ? 7 : 5}
+                  r={isFocused ? 6.5 : 4.5}
                   fill="#10b981"
                   stroke="#ffffff"
-                  strokeWidth={isFocused ? 2.5 : 1.5}
+                  strokeWidth={isFocused ? 2 : 1}
                 />
 
-                {/* Value pill on top if focused or key milestones (5, 10, 15) */}
-                {(isFocused || point.year === 10) && (
+                {/* Value pill if focused */}
+                {isFocused && (
                   <>
-                    {/* Untreated value tag */}
                     <rect
-                      x={x - 22}
-                      y={yUntreated - (viewMode === 'hazard' ? 24 : -8)}
-                      width="44"
+                      x={x - 24}
+                      y={yUntreated - 22}
+                      width="48"
                       height="18"
                       rx="4"
                       fill="#1e1b2e"
@@ -374,7 +350,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
                     />
                     <text
                       x={x}
-                      y={yUntreated - (viewMode === 'hazard' ? 11 : -21)}
+                      y={yUntreated - 9}
                       textAnchor="middle"
                       fill="#fca5a5"
                       fontSize="10"
@@ -383,11 +359,10 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
                       {point[untreatedKey]}%
                     </text>
 
-                    {/* Controlled value tag */}
                     <rect
-                      x={x - 22}
-                      y={yControlled - (viewMode === 'hazard' ? -8 : 24)}
-                      width="44"
+                      x={x - 24}
+                      y={yControlled + 6}
+                      width="48"
                       height="18"
                       rx="4"
                       fill="#06251b"
@@ -396,7 +371,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
                     />
                     <text
                       x={x}
-                      y={yControlled - (viewMode === 'hazard' ? -21 : 11)}
+                      y={yControlled + 19}
                       textAnchor="middle"
                       fill="#6ee7b7"
                       fontSize="10"
@@ -412,12 +387,13 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
         </svg>
       </div>
 
-      {/* INTERACTIVE MILESTONE SELECTOR STRIP */}
+      {/* MILESTONE SELECTOR STRIP */}
       <div className="st-milestones-row">
         {yearMilestones.map((yr) => {
           const pt = trajectory.find((p) => p.year === yr);
           if (!pt) return null;
           const isSelected = activePoint?.year === yr;
+          const diff = pt.difference !== undefined ? pt.difference : Math.round((pt.controlledSurvival - pt.untreatedSurvival) * 10) / 10;
 
           return (
             <button
@@ -429,7 +405,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
               <div className="st-card-top">
                 <span className="st-year-tag">Year {yr}</span>
                 <span className="st-arr-badge">
-                  {viewMode === 'hazard' ? `-${pt.arr}% Risk` : `+${pt.survivalGain}% Surv`}
+                  {diff >= 0 ? `+${diff}%` : `${diff}%`} Diff
                 </span>
               </div>
 
@@ -452,7 +428,7 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
         })}
       </div>
 
-      {/* SELECTED MILESTONE DEEP-DIVE CARD */}
+      {/* SELECTED MILESTONE DETAILS CARD */}
       {activePoint && (
         <div className="st-inspector-box">
           <div className="st-inspector-header">
@@ -460,18 +436,21 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
               <span className="st-inspector-icon">🎯</span>
               <div>
                 <h5>
-                  Year {activePoint.year} Prognostic Milestone:{' '}
-                  <span className="st-inspector-highlight">
-                    {activePoint.year === 10 ? 'Standard 10-Year Clinical Horizon' : `Year ${activePoint.year} Horizon`}
-                  </span>
+                  Year {activePoint.year} Horizon
                 </h5>
-                <span className="st-inspector-sub">{activePoint.milestone}</span>
+                <span className="st-inspector-sub">
+                  Predicted by Cox Proportional Hazards Model (assumed right-censored at 32 years)
+                </span>
               </div>
             </div>
 
             <div className="st-inspector-gain-pill">
-              <span className="st-gain-label">Absolute Risk Averted</span>
-              <span className="st-gain-val">-{activePoint.arr}%</span>
+              <span className="st-gain-label">Scenario Difference</span>
+              <span className="st-gain-val">
+                {activePoint.difference !== undefined
+                  ? `${activePoint.difference >= 0 ? '+' : ''}${activePoint.difference}%`
+                  : `${Math.round((activePoint.controlledSurvival - activePoint.untreatedSurvival) * 10) / 10}%`}
+              </span>
             </div>
           </div>
 
@@ -479,41 +458,41 @@ export default function SurvivalTrajectoryCurve({ trajectoryData, patient }) {
             <div className="st-inspector-col untreated">
               <div className="st-col-title">
                 <span className="st-status-circle red" />
-                <span>Untreated Trajectory</span>
+                <span>Untreated Profile</span>
               </div>
               <div className="st-col-stat">
                 <span className="number">{activePoint.untreatedRisk}%</span>
-                <span className="label">Cumulative Event Hazard</span>
+                <span className="label">Predicted cumulative risk</span>
               </div>
               <div className="st-col-substat">
-                Event-Free Survival Probability: <strong>{activePoint.untreatedSurvival}%</strong>
+                Predicted Survival: <strong>{activePoint.untreatedSurvival}%</strong>
               </div>
             </div>
 
             <div className="st-inspector-col controlled">
               <div className="st-col-title">
                 <span className="st-status-circle green" />
-                <span>Controlled Trajectory (BP & Smoking Controlled)</span>
+                <span>Controlled Scenario (BP ≤ 120/80, 0 cigs)</span>
               </div>
               <div className="st-col-stat">
                 <span className="number">{activePoint.controlledRisk}%</span>
-                <span className="label">Cumulative Event Hazard</span>
+                <span className="label">Predicted cumulative risk</span>
               </div>
               <div className="st-col-substat">
-                Event-Free Survival Probability: <strong>{activePoint.controlledSurvival}%</strong>
+                Predicted Survival: <strong>{activePoint.controlledSurvival}%</strong>
               </div>
             </div>
 
             <div className="st-inspector-col summary">
               <div className="st-col-title">
                 <span className="st-status-circle blue" />
-                <span>Clinical Interpretation</span>
+                <span>Scenario Interpretation</span>
               </div>
               <p className="st-interpret-text">
-                By maintaining blood pressure at <strong>≤120/80 mmHg</strong> and ensuring <strong>complete tobacco cessation</strong>, the patient cuts their cumulative {activePoint.year}-year risk from <strong>{activePoint.untreatedRisk}%</strong> down to <strong>{activePoint.controlledRisk}%</strong>.
+                In this illustrative scenario where blood pressure is maintained at ≤120/80 mmHg with zero tobacco exposure, the model-predicted cumulative event risk at Year {activePoint.year} is <strong>{activePoint.controlledRisk}%</strong> compared to <strong>{activePoint.untreatedRisk}%</strong> in the untreated baseline profile.
               </p>
               <div className="st-interpret-badge">
-                🛡️ Preserves <strong>+{activePoint.survivalGain}%</strong> absolute event-free survival rate over this horizon.
+                ⚠️ Illustrative scenario, not a predicted treatment effect (the model measures association, not causation). Discuss with a clinician.
               </div>
             </div>
           </div>

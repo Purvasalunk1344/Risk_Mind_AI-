@@ -19,6 +19,7 @@ SCRIPTS = [
     ("08_explainability.py", "Model Explainability & Odds Ratios"),
     ("09_scorecard_fairness.py", "Scorecard & Subgroup Fairness"),
     ("10_mlops_monitoring.py", "MLOps Drift Monitoring & PSI"),
+    ("12_survival_model.py", "Cox Proportional Hazards Model Training & Export"),
 ]
 
 def run_pipeline():

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { calculateRisk, getRiskBand, samplePatient, generateCounterfactualPlan, calculateSurvivalTrajectory } from './data/scoreLogic';
+import { getRiskBand, samplePatient, generateCounterfactualPlan } from './data/scoreLogic';
 import SurvivalTrajectoryCurve from './components/SurvivalTrajectoryCurve';
 
 const fieldConfig = [
@@ -100,6 +100,7 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('logistic');
   const [backendOnline, setBackendOnline] = useState(false);
   const [backendData, setBackendData] = useState(null);
+  const [survivalData, setSurvivalData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [savingRecord, setSavingRecord] = useState(false);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'factors' | 'guidance' | 'history'
@@ -193,7 +194,7 @@ function App() {
         }),
       })
         .then((res) => {
-          if (!res.ok) throw new Error('Prediction API failed');
+          if (!res.ok) throw new Error('Model service unavailable');
           return res.json();
         })
         .then((data) => {
@@ -201,13 +202,37 @@ function App() {
             setBackendOnline(true);
             setBackendData(data);
             setHasUncalculatedChanges(false);
+          } else {
+            setBackendOnline(false);
+            setBackendData(null);
           }
           setLoading(false);
         })
         .catch(() => {
           setBackendOnline(false);
+          setBackendData(null);
           setLoading(false);
           setHasUncalculatedChanges(false);
+        });
+
+      // Also execute survival curve prediction
+      fetch('/api/survival', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentPatient),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error('Survival API unavailable');
+          return res.json();
+        })
+        .then((data) => {
+          if (data.success) {
+            setSurvivalData(data);
+          }
+        })
+        .catch((err) => {
+          console.warn('Survival API error:', err);
+          setSurvivalData(null);
         });
     },
     []
@@ -225,23 +250,26 @@ function App() {
     showToast(`Switched active model to: ${newModel.replace('_', ' ').toUpperCase()}`, 'info');
   };
 
-  // Fallback local calculations if backend is loading or unavailable
-  const localRisk = useMemo(() => calculateRisk(patient), [patient]);
-  const localBand = useMemo(() => getRiskBand(localRisk), [localRisk]);
+  // Backend is the single source of truth - no browser-side risk formulas
+  const activeRisk = backendData?.risk ?? null;
+  const activeBand = backendData
+    ? { label: backendData.risk_band, tone: backendData.risk_band.toLowerCase() }
+    : { label: 'Unavailable', tone: 'neutral' };
+  const activePct = activeRisk !== null ? Math.round(activeRisk * 100) : null;
 
-  const activeRisk = backendData?.risk ?? localRisk;
-  const activeBand = backendData ? { label: backendData.risk_band, tone: backendData.risk_band.toLowerCase() } : localBand;
-  const activePct = Math.round(activeRisk * 100);
-
-  // Counterfactual reverse goal-seeking computation
+  // Counterfactual reverse goal-seeking computation (using backend model predictions)
   const counterfactualPlan = useMemo(() => {
-    return generateCounterfactualPlan(patient, targetRiskGoal);
-  }, [patient, targetRiskGoal]);
+    if (!backendData) return null;
+    return generateCounterfactualPlan(
+      patient,
+      backendData.risk,
+      backendData.controlled_risk,
+      targetRiskGoal
+    );
+  }, [patient, backendData, targetRiskGoal]);
 
-  // Dynamic Kaplan-Meier time-to-event survival trajectory computation
-  const survivalTrajectory = useMemo(() => {
-    return calculateSurvivalTrajectory(patient, backendData?.probability);
-  }, [patient, backendData]);
+  // Real Cox model survival trajectory returned by backend
+  const survivalTrajectory = survivalData;
 
   // Update field value and mark uncalculated changes
   const updateField = (key, value) => {
@@ -504,33 +532,50 @@ function App() {
           </div>
 
           {/* MAIN RISK CARD */}
-          <div className={`risk-card ${activeBand.tone}`}>
+          <div className={`risk-card ${backendOnline ? activeBand.tone : 'neutral'}`}>
             <div className="risk-header">
-              <span className="label">10-Year Mortality Hazard</span>
+              <span className="label">Predicted Study Mortality Risk (~32 Years Follow-up)</span>
               {loading && <span className="calculating-badge">Scoring Patient...</span>}
             </div>
 
-            <div className="risk-value">{activePct}%</div>
+            {backendOnline && activePct !== null ? (
+              <>
+                <div className="risk-value">{activePct}%</div>
 
-            <div className="risk-band-row">
-              <span className={`risk-band-tag ${activeBand.tone}`}>{activeBand.label} Risk Tier</span>
-              {backendData?.flagged && <span className="flag-alert">⚠️ High Risk Flag</span>}
+                <div className="risk-band-row">
+                  <span className={`risk-band-tag ${activeBand.tone}`}>{activeBand.label} Risk Tier</span>
+                  {backendData?.flagged && <span className="flag-alert">⚠️ High Risk Flag</span>}
+                </div>
+
+                <div className="risk-bar">
+                  <span style={{ width: `${Math.min((activeRisk || 0) * 100, 100)}%` }} />
+                </div>
+
+                <p className="risk-urgency-note">
+                  {insights?.urgency || (activeBand.label === 'High' ? 'High Priority Clinical Alert' : 'Routine Monitoring')}
+                </p>
+              </>
+            ) : (
+              <div style={{ padding: '16px 0' }}>
+                <div className="risk-value" style={{ fontSize: '1.4rem', color: '#f87171' }}>
+                  Model service unavailable
+                </div>
+                <p className="risk-urgency-note" style={{ color: '#fca5a5', marginTop: '8px' }}>
+                  Backend model server is offline or unreachable. Please verify server is running on port 5000.
+                </p>
+              </div>
+            )}
+
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '8px', textAlign: 'center' }}>
+              ⚠️ Educational project, not medical advice.
             </div>
-
-            <div className="risk-bar">
-              <span style={{ width: `${Math.min(activeRisk * 100, 100)}%` }} />
-            </div>
-
-            <p className="risk-urgency-note">
-              {insights?.urgency || (activeBand.label === 'High' ? 'High Priority Clinical Alert' : 'Routine Monitoring')}
-            </p>
 
             {/* Quick Save button in Hero Card */}
             <div className="hero-quick-save">
               <button
                 className="btn-save-record"
                 onClick={handleSavePatient}
-                disabled={savingRecord}
+                disabled={savingRecord || !backendOnline}
                 title="Save current evaluated patient into permanent records"
               >
                 💾 {savingRecord ? 'Saving...' : 'Save Patient Record'}
@@ -887,7 +932,7 @@ function App() {
                 </div>
               )}
 
-              {/* DYNAMIC TIME-TO-EVENT TRAJECTORY (KAPLAN-MEIER SURVIVAL CURVES) */}
+              {/* DYNAMIC TIME-TO-EVENT TRAJECTORY (COX PROPORTIONAL HAZARDS MODEL) */}
               <SurvivalTrajectoryCurve trajectoryData={survivalTrajectory} patient={patient} />
 
               {/* COUNTERFACTUAL GOAL SEEKER HERO */}

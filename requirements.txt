@@ -7,3 +7,7 @@ lifelines
 shap
 statsmodels
 scipy
+pytest
+flask
+flask-cors
+python-dotenv
