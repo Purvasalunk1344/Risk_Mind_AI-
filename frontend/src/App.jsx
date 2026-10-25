@@ -932,9 +932,6 @@ function App() {
                 </div>
               )}
 
-              {/* DYNAMIC TIME-TO-EVENT TRAJECTORY (COX PROPORTIONAL HAZARDS MODEL) */}
-              <SurvivalTrajectoryCurve trajectoryData={survivalTrajectory} patient={patient} />
-
               {/* COUNTERFACTUAL GOAL SEEKER HERO */}
               <div className="counterfactual-hero">
                 <div className="counterfactual-top">
